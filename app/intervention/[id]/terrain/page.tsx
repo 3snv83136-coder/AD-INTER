@@ -118,7 +118,7 @@ export default function TerrainPage({ params }: { params: { id: string } }) {
   }
 
   if (loading) {
-    return <div className="min-h-screen bg-slate-50 flex items-center justify-center text-slate-500">Chargement…</div>
+    return <div className="allo-page flex items-center justify-center text-slate-500">Chargement…</div>
   }
   // Écran d'erreur plein écran UNIQUEMENT si l'intervention n'a pas pu être
   // chargée. Une erreur d'étape (envoi, facture…) ne doit pas faire disparaître
@@ -126,7 +126,7 @@ export default function TerrainPage({ params }: { params: { id: string } }) {
   // réessayer sans recharger la page.
   if (!interv) {
     return (
-      <div className="min-h-screen bg-slate-50 p-6">
+      <div className="allo-page p-6">
         <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-xl">{error || 'Intervention introuvable'}</div>
         <Link href="/planning" className="inline-block mt-4 text-blue-600 hover:underline font-semibold">← Retour au planning</Link>
       </div>
@@ -176,7 +176,7 @@ function TerrainPageBody({
   const showAccordTab = isTech && isAccordFinDeMois()
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-24">
+    <div className="allo-page pb-24">
       {/* Header sticky */}
       <nav className="bg-[#0e2a52] text-white px-4 py-3 sticky top-0 z-30 shadow-lg">
         <div className="max-w-4xl mx-auto flex items-center justify-between gap-3">

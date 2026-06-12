@@ -719,7 +719,7 @@ export default function NouveauPage() {
   const currentStepperIdx = getStepperIndex(step)
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-32">
+    <div className="allo-page pb-32">
       {/* App tabs (rapport vs devis) */}
       <div className="bg-white border-b border-slate-200 py-2">
         <div className="max-w-3xl mx-auto px-4">

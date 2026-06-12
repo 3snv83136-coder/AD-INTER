@@ -354,7 +354,7 @@ export default function InterventionDetailPage({ params }: { params: { id: strin
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50">
+      <div className="allo-page">
         <div className="bg-white border-b border-slate-200 py-2">
           <div className="max-w-4xl mx-auto px-4"><AppTabs /></div>
         </div>
@@ -365,7 +365,7 @@ export default function InterventionDetailPage({ params }: { params: { id: strin
 
   if (error || !intervention) {
     return (
-      <div className="min-h-screen bg-slate-50">
+      <div className="allo-page">
         <div className="bg-white border-b border-slate-200 py-2">
           <div className="max-w-4xl mx-auto px-4"><AppTabs /></div>
         </div>
@@ -385,7 +385,7 @@ export default function InterventionDetailPage({ params }: { params: { id: strin
   ].filter(Boolean).join(', ')
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-20">
+    <div className="allo-page pb-20">
       <div className="bg-white border-b border-slate-200 py-2">
         <div className="max-w-4xl mx-auto px-4"><AppTabs /></div>
       </div>

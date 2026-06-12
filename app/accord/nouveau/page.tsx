@@ -111,7 +111,7 @@ export default async function NouvelAccordPage({
   const validiteJours = Number(validiteStr) || 30
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="allo-page">
       <TechAccordChrome />
       <header className="bg-[#0e2a52] text-white">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between gap-3">

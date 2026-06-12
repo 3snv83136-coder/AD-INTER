@@ -231,7 +231,7 @@ export default function AttestationPage() {
   /* ===== STEP: GENERATING ===== */
   if (step === 'generating') {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
+      <div className="allo-page flex items-center justify-center p-6">
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 max-w-md w-full text-center">
           <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-blue-200 border-t-[#0f2e5c] mb-4" />
           <h2 className="text-xl font-black text-[#0f2e5c]">Rédaction de l&apos;attestation…</h2>
@@ -247,7 +247,7 @@ export default function AttestationPage() {
     const variantLabel = VARIANT_OPTIONS.find(v => v.key === data.variante)?.label || data.variante
 
     return (
-      <div className="min-h-screen bg-slate-50">
+      <div className="allo-page">
         <header className="bg-white border-b-2 border-[#0f2e5c] sticky top-0 z-10">
           <div className="max-w-4xl mx-auto px-4 py-3 flex justify-between items-center">
             <Link href="/" className="text-sm text-slate-500 hover:text-[#0f2e5c]">← Accueil</Link>
@@ -462,7 +462,7 @@ export default function AttestationPage() {
 
   /* ===== STEP: CAPTURE ===== */
   return (
-    <div className="min-h-screen bg-slate-50 pb-20">
+    <div className="allo-page pb-20">
       <header className="bg-white border-b-2 border-[#0f2e5c] sticky top-0 z-10">
         <div className="max-w-3xl mx-auto px-4 py-3 flex justify-between items-center">
           <Link href="/" className="text-sm text-slate-500 hover:text-[#0f2e5c]">← Accueil</Link>

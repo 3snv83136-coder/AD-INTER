@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState } from "react"
 import Link from "next/link"
+import { BrandLogo } from "@/components/BrandLogo"
 
 type Tool = {
   href: string
@@ -88,13 +89,20 @@ export default function Home() {
   const rest = TOOLS.filter(t => !t.featured)
 
   return (
-    <main className="min-h-dvh bg-[#0a1f3d] text-slate-100 pb-[max(1rem,env(safe-area-inset-bottom))]">
-      <header className="sticky top-0 z-20 bg-[#0e2a52]/95 backdrop-blur-md text-white border-b border-white/10 pt-[env(safe-area-inset-top)]">
+    <main className="allo-page-dark text-slate-100 pb-[max(1rem,env(safe-area-inset-bottom))]">
+      <header className="sticky top-0 z-20 bg-[#0e2a52]/80 backdrop-blur-md text-white border-b border-white/10 pt-[env(safe-area-inset-top)]">
         <div className="max-w-6xl mx-auto px-3 sm:px-5 py-3 sm:py-4 flex items-center justify-between gap-3">
-          <div className={`flex items-baseline gap-2 sm:gap-3 ${intro ? 'allo-drop' : ''}`}>
-            <h1 className="text-xl sm:text-3xl font-black tracking-tight leading-none">Allo Débouchage</h1>
-            <div className="text-[9px] sm:text-[10px] uppercase tracking-[0.2em] text-white/60 font-semibold hidden sm:block">
-              CRM
+          <div className={`flex items-center gap-3 sm:gap-4 ${intro ? 'allo-drop' : ''}`}>
+            <BrandLogo
+              size={72}
+              priority
+              className="h-14 w-14 sm:h-[4.5rem] sm:w-[4.5rem] drop-shadow-[0_8px_24px_rgba(0,0,0,0.35)]"
+            />
+            <div>
+              <h1 className="text-lg sm:text-2xl font-black tracking-tight leading-none">Allo Débouchage</h1>
+              <div className="text-[9px] sm:text-[10px] uppercase tracking-[0.2em] text-white/60 font-semibold mt-0.5">
+                CRM terrain
+              </div>
             </div>
           </div>
           <div className="text-[10px] sm:text-[11px] text-white/70 text-right leading-tight">

@@ -147,7 +147,7 @@ export default function RapportsPage() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 text-slate-900">
+    <main className="allo-page text-slate-900">
       <header className="bg-[#0e2a52] text-white">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-5 flex items-center justify-between gap-4">
           <div className="flex items-baseline gap-3">

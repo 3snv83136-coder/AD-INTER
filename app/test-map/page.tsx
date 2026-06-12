@@ -9,7 +9,7 @@ const InterventionMap = dynamic(() => import('@/components/InterventionMap'), {
 
 export default function TestMapPage(): JSX.Element {
   return (
-    <main className="min-h-screen bg-gray-50 p-8">
+    <main className="allo-page p-8">
       <h1 className="text-2xl font-bold text-gray-900 mb-6">
         Test InterventionMap
       </h1>

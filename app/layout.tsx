@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next"
 import { Inter } from "next/font/google"
 import "./globals.css"
 import { SessionProvider } from "next-auth/react"
+import { BrandBackdrop } from "@/components/BrandBackdrop"
 import { PwaScript } from "@/components/PwaScript"
 
 const inter = Inter({ subsets: ["latin"] })
@@ -36,10 +37,13 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="fr">
-      <body className={inter.className}>
-        <SessionProvider>
-          {children}
-        </SessionProvider>
+      <body className={`${inter.className} min-h-dvh bg-[#eef2f7]`}>
+        <BrandBackdrop />
+        <div className="relative z-10 min-h-dvh">
+          <SessionProvider>
+            {children}
+          </SessionProvider>
+        </div>
         <PwaScript />
       </body>
     </html>

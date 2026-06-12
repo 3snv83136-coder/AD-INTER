@@ -206,7 +206,7 @@ export default function InspectionPage() {
   const canPreview = clientNom.trim().length > 0
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-20">
+    <div className="allo-page pb-20">
       <header className="bg-white border-b border-slate-200 sticky top-0 z-10">
         <div className="max-w-5xl mx-auto px-4 py-3">
           <AppTabs />

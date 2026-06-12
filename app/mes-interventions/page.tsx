@@ -64,7 +64,7 @@ export default function MesInterventionsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="allo-page">
       <header className="bg-[#0e2a52] text-white px-4 py-4 sticky top-0 z-20 shadow-lg">
         <div className="max-w-lg mx-auto flex items-center justify-between gap-3">
           <div>

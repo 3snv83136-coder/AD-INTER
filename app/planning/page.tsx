@@ -173,7 +173,7 @@ export default function PlanningPage() {
   }, [interventions, filterStatut, filterTech, filterAgence, filterDate])
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-20">
+    <div className="allo-page pb-20">
       {isTech ? (
         <TechNav />
       ) : (

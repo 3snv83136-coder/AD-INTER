@@ -116,14 +116,14 @@ export default function TousLesDevisPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+      <div className="allo-page flex items-center justify-center">
         <div className="text-slate-400 text-lg">Chargement…</div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-20">
+    <div className="allo-page pb-20">
       <header className="bg-white border-b border-slate-200">
         <div className="max-w-6xl mx-auto px-4 py-3">
           <AppTabs />

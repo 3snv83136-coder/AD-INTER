@@ -80,14 +80,14 @@ export default function MailPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+      <div className="allo-page flex items-center justify-center">
         <div className="text-slate-400 text-lg">Chargement…</div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-20">
+    <div className="allo-page pb-20">
       <nav className="bg-[#0e2a52] text-white px-4 py-3 sm:px-6 sm:py-4 shadow-lg">
         <div className="max-w-6xl mx-auto">
           <div className="font-black text-base sm:text-lg leading-tight">Allo Débouchage</div>

@@ -154,7 +154,7 @@ export default function AdminTechniciensPage() {
   }
 
   return (
-    <main className="min-h-dvh bg-slate-50 text-slate-900 pb-16">
+    <main className="allo-page text-slate-900 pb-16">
       <header className="sticky top-0 z-20 bg-[#0e2a52] text-white border-b border-white/10 pt-[env(safe-area-inset-top)]">
         <div className="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">

@@ -73,7 +73,7 @@ export default async function AccordHubPage() {
   const { accords, error, needsMigration } = await loadAccords(technicienId)
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-20">
+    <div className="allo-page pb-20">
       <TechAccordChrome />
       <header className="bg-[#0e2a52] text-white">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between gap-3">

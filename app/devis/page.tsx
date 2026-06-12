@@ -25,7 +25,7 @@ type Step = 'capture' | 'extracting' | 'generating' | 'preview'
 export default function DevisPage() {
   return (
     <Suspense fallback={
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center text-slate-500">Chargement…</div>
+      <div className="allo-page flex items-center justify-center text-slate-500">Chargement…</div>
     }>
       <DevisPageContent />
     </Suspense>
@@ -286,7 +286,7 @@ function DevisPageContent() {
   /* =================== RENDER =================== */
   if (step === 'generating') {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
+      <div className="allo-page flex items-center justify-center p-6">
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 max-w-md w-full text-center">
           <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-blue-200 border-t-[#0e2a52] mb-4" />
           <h2 className="text-xl font-black text-[#0e2a52]">Analyse de la dictée…</h2>
@@ -317,7 +317,7 @@ function DevisPageContent() {
     }
 
     return (
-      <div className="min-h-screen bg-slate-50">
+      <div className="allo-page">
         <header className="bg-white border-b border-slate-200 sticky top-0 z-10">
           <div className="max-w-4xl mx-auto px-4 py-3">
             <AppTabs />
@@ -682,7 +682,7 @@ function DevisPageContent() {
 
   /* ========= CAPTURE ========= */
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="allo-page">
       <header className="bg-white border-b border-slate-200">
         <div className="max-w-3xl mx-auto px-4 py-3">
           <AppTabs />

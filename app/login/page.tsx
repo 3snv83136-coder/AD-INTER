@@ -2,6 +2,7 @@
 import { signIn } from "next-auth/react"
 import { useState } from "react"
 import { useRouter } from "next/navigation"
+import { BrandLogo } from "@/components/BrandLogo"
 
 /**
  * Bulles d'eau de l'arrière-plan animé. Valeurs FIXES (jamais Math.random) :
@@ -83,6 +84,13 @@ export default function LoginPage() {
         }
       `}</style>
 
+      <div className="pointer-events-none absolute inset-0 flex items-center justify-center" aria-hidden>
+        <BrandLogo
+          size={420}
+          className="w-[min(72vw,420px)] h-[min(72vw,420px)] opacity-[0.18] drop-shadow-[0_0_80px_rgba(255,255,255,0.15)]"
+        />
+      </div>
+
       {/* Bulles d'eau qui remontent */}
       <div className="pointer-events-none absolute inset-0" aria-hidden="true">
         {BUBBLES.map((b, i) => (
@@ -128,8 +136,8 @@ export default function LoginPage() {
         style={{ animation: 'alloCardIn .7s cubic-bezier(.2,.8,.2,1) both', boxShadow: '0 24px 60px rgba(0,0,0,.45)' }}
       >
         <div className="mb-7 flex flex-col items-center text-center">
-          <div className="text-5xl" style={{ animation: 'alloDrop 3s ease-in-out infinite' }}>
-            💧
+          <div style={{ animation: 'alloDrop 3s ease-in-out infinite' }}>
+            <BrandLogo size={88} priority className="h-20 w-20 sm:h-24 sm:w-24 drop-shadow-md" />
           </div>
           <h1 className="mt-3 text-xl font-black leading-tight text-[#0e2a52]">
             Les Techniciens

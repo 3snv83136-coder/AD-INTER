@@ -9,9 +9,19 @@
 
 body {
   color: var(--foreground);
-  background: var(--background);
   font-family: Arial, Helvetica, sans-serif;
   -webkit-text-size-adjust: 100%;
+}
+
+/* Fond semi-transparent : le filigrane logo (BrandBackdrop) reste visible */
+.allo-page {
+  min-height: 100dvh;
+  background-color: rgb(248 250 252 / 0.82);
+}
+
+.allo-page-dark {
+  min-height: 100dvh;
+  background-color: rgb(10 31 61 / 0.78);
 }
 
 /* Anti-zoom iOS sur focus input (font-size < 16px déclenche le zoom auto Safari) */

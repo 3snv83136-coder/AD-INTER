@@ -121,7 +121,7 @@ export default function PreviewPdfPage({ params }: { params: { id: string } }) {
   if (loading) return <div className="p-10 text-center text-slate-500">Chargement…</div>
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
+    <div className="allo-page flex flex-col">
       <nav className="bg-[#0e2a52] text-white px-4 py-3 shadow-lg flex items-center gap-3 flex-shrink-0">
         <Link href={`/intervention/${params.id}`} className="text-sm font-semibold bg-white/10 hover:bg-white/20 px-3 py-2 rounded-lg">
           ← Retour fiche

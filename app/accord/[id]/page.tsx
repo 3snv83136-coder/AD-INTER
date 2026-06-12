@@ -78,7 +78,7 @@ export default async function AccordDetailPage({ params }: { params: { id: strin
 
   if (!result) {
     return (
-      <div className="min-h-screen bg-slate-50">
+      <div className="allo-page">
         <ShellHeader>
           <h1 className="font-black text-lg">Accord introuvable</h1>
           <Link href="/accord" className="text-sm font-semibold bg-white/10 hover:bg-white/20 px-3 py-2 rounded-lg transition">
@@ -116,7 +116,7 @@ export default async function AccordDetailPage({ params }: { params: { id: strin
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-16">
+    <div className="allo-page pb-16">
       <TechAccordChrome />
       <ShellHeader>
         <div className="min-w-0">
