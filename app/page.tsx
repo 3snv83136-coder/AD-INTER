@@ -39,8 +39,8 @@ const TOOLS: Tool[] = [
 function ToolTile({ t, introClass }: { t: Tool; introClass?: string }) {
   const textColor = t.text === 'white' ? 'text-white' : 'text-black'
   const tileClass = t.featured
-    ? `group relative min-h-[108px] sm:min-h-[120px] rounded-xl sm:rounded-2xl overflow-hidden flex flex-col justify-end p-3 sm:p-4 shadow-md transition-all duration-200 hover:shadow-xl hover:scale-[1.02] ${t.bg} ${textColor} ${introClass || ''}`
-    : `group relative min-h-[100px] sm:min-h-[108px] rounded-xl overflow-hidden flex flex-col justify-end p-3 shadow-sm transition-all duration-200 hover:shadow-lg hover:scale-[1.02] ${t.bg} ${textColor} ${introClass || ''}`
+    ? `group relative min-h-[108px] sm:min-h-[120px] rounded-xl sm:rounded-2xl overflow-hidden flex flex-col justify-end p-3 sm:p-4 shadow-lg ring-1 ring-white/10 transition-all duration-200 hover:shadow-xl hover:scale-[1.02] ${t.bg} ${textColor} ${introClass || ''}`
+    : `group relative min-h-[100px] sm:min-h-[108px] rounded-xl overflow-hidden flex flex-col justify-end p-3 shadow-md ring-1 ring-white/10 transition-all duration-200 hover:shadow-lg hover:scale-[1.02] ${t.bg} ${textColor} ${introClass || ''}`
 
   const inner = (
     <>
@@ -89,36 +89,35 @@ export default function Home() {
   const rest = TOOLS.filter(t => !t.featured)
 
   return (
-    <main className="allo-page-dark text-slate-100 pb-[max(1rem,env(safe-area-inset-bottom))] relative">
-      <div
-        aria-hidden
-        className="pointer-events-none fixed left-1/2 top-[52%] -translate-x-1/2 -translate-y-1/2 z-[1]"
-      >
-        <BrandLogo
-          size={800}
-          priority
-          className="w-[min(104vw,760px)] h-[min(104vw,760px)] opacity-[0.88] drop-shadow-[0_0_100px_rgba(255,255,255,0.18)]"
-        />
-      </div>
-
-      <header className="sticky top-0 z-20 bg-[#0e2a52]/70 backdrop-blur-md text-white border-b border-white/10 pt-[env(safe-area-inset-top)]">
-        <div className="max-w-6xl mx-auto px-3 sm:px-5 py-2.5 sm:py-3 flex items-center justify-between gap-3">
-          <div className={intro ? 'allo-drop' : ''}>
-            <BrandLogo
-              size={120}
-              priority
-              className="h-[4.25rem] w-[4.25rem] sm:h-20 sm:w-20 drop-shadow-[0_8px_28px_rgba(0,0,0,0.45)]"
-            />
-          </div>
-          <div className="text-[10px] sm:text-[11px] text-white/70 text-right leading-tight">
-            {new Date().toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' })}
+    <main className="min-h-dvh bg-[#0a1628] text-slate-100 pb-[max(1rem,env(safe-area-inset-bottom))]">
+      <header className="sticky top-0 z-20 border-b border-white/10 bg-[#0a1628]/90 backdrop-blur-md pt-[env(safe-area-inset-top)]">
+        <div className="max-w-6xl mx-auto px-3 sm:px-5 py-2 flex items-center justify-end">
+          <div className="text-[10px] sm:text-xs text-white/60 tabular-nums">
+            {new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
           </div>
         </div>
       </header>
 
-      <div className="relative z-10 max-w-6xl mx-auto px-3 sm:px-5 py-4 sm:py-6 space-y-4 sm:space-y-5">
+      <section
+        className={`relative z-10 flex flex-col items-center justify-center px-4 pt-6 pb-8 sm:pt-10 sm:pb-10 ${intro ? 'allo-drop' : ''}`}
+      >
+        <div className="relative w-full max-w-[min(92vw,520px)]">
+          <div
+            aria-hidden
+            className="pointer-events-none absolute left-1/2 top-1/2 h-[120%] w-[120%] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#1e6fd9]/20 blur-3xl"
+          />
+          <BrandLogo
+            variant="full"
+            size={160}
+            priority
+            className="relative mx-auto h-auto w-full max-w-[min(92vw,520px)] drop-shadow-[0_16px_48px_rgba(0,0,0,0.55)]"
+          />
+        </div>
+      </section>
+
+      <div className="relative z-10 max-w-6xl mx-auto px-3 sm:px-5 pb-6 space-y-4 sm:space-y-5">
         <section>
-          <h2 className="text-[10px] uppercase tracking-[0.18em] text-white/50 font-semibold mb-2 px-0.5">
+          <h2 className="text-[10px] uppercase tracking-[0.18em] text-white/45 font-semibold mb-2 px-0.5">
             Priorités
           </h2>
           <div className="grid grid-cols-2 gap-2 sm:gap-3">
@@ -129,9 +128,9 @@ export default function Home() {
         </section>
 
         <section>
-          <h2 className="text-[10px] uppercase tracking-[0.18em] text-white/50 font-semibold mb-2 px-0.5">
+          <h2 className="text-[10px] uppercase tracking-[0.18em] text-white/45 font-semibold mb-2 px-0.5">
             Tous les modules
-            <span className="ml-2 text-white/40 tabular-nums">{TOOLS.length}</span>
+            <span className="ml-2 text-white/35 tabular-nums">{TOOLS.length}</span>
           </h2>
           <div
             className="grid gap-2 sm:gap-2.5"
@@ -146,10 +145,10 @@ export default function Home() {
 
       <style jsx>{`
         @keyframes softFadeUp {
-          from { opacity: 0; transform: translateY(8px); }
+          from { opacity: 0; transform: translateY(12px); }
           to { opacity: 1; transform: translateY(0); }
         }
-        .allo-drop { opacity: 0; animation: softFadeUp 0.4s ease-out 0.05s forwards; }
+        .allo-drop { opacity: 0; animation: softFadeUp 0.45s ease-out 0.05s forwards; }
         @media (prefers-reduced-motion: reduce) {
           .allo-drop { animation: none !important; opacity: 1 !important; }
         }

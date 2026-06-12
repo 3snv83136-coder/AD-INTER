@@ -137,7 +137,7 @@ export default function LoginPage() {
       >
         <div className="mb-7 flex flex-col items-center text-center">
           <div style={{ animation: 'alloDrop 3s ease-in-out infinite' }}>
-            <BrandLogo size={88} priority className="h-20 w-20 sm:h-24 sm:w-24 drop-shadow-md" />
+            <BrandLogo variant="full" size={72} priority className="h-auto w-full max-w-[240px] drop-shadow-md" />
           </div>
           <h1 className="mt-3 text-xl font-black leading-tight text-[#0e2a52]">
             Les Techniciens

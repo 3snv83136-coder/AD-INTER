@@ -11,5 +11,8 @@ export const CONTACT_EMAIL = `contact@${SITE_DOMAIN}`
 
 /** Chemins locaux (dossier public/) */
 export const LOGO_PATH = "/images/logo.png"
+/** Logo complet horizontal (nom + symbole) */
+export const LOGO_FULL_PATH = "/images/logo-full.png"
+/** Symbole seul (header, favicon) */
 export const ICON_512_PATH = "/icons/icon-512x512.png"
 export const ICON_1024_PATH = "/icons/icon-1024x1024.png"
