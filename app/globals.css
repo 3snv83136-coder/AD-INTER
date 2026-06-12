@@ -21,7 +21,7 @@ body {
 
 .allo-page-dark {
   min-height: 100dvh;
-  background-color: rgb(10 31 61 / 0.78);
+  background-color: rgb(10 31 61 / 0.62);
 }
 
 /* Anti-zoom iOS sur focus input (font-size < 16px déclenche le zoom auto Safari) */

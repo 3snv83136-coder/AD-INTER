@@ -89,21 +89,26 @@ export default function Home() {
   const rest = TOOLS.filter(t => !t.featured)
 
   return (
-    <main className="allo-page-dark text-slate-100 pb-[max(1rem,env(safe-area-inset-bottom))]">
-      <header className="sticky top-0 z-20 bg-[#0e2a52]/80 backdrop-blur-md text-white border-b border-white/10 pt-[env(safe-area-inset-top)]">
-        <div className="max-w-6xl mx-auto px-3 sm:px-5 py-3 sm:py-4 flex items-center justify-between gap-3">
-          <div className={`flex items-center gap-3 sm:gap-4 ${intro ? 'allo-drop' : ''}`}>
+    <main className="allo-page-dark text-slate-100 pb-[max(1rem,env(safe-area-inset-bottom))] relative">
+      <div
+        aria-hidden
+        className="pointer-events-none fixed left-1/2 top-[52%] -translate-x-1/2 -translate-y-1/2 z-[1]"
+      >
+        <BrandLogo
+          size={800}
+          priority
+          className="w-[min(104vw,760px)] h-[min(104vw,760px)] opacity-[0.88] drop-shadow-[0_0_100px_rgba(255,255,255,0.18)]"
+        />
+      </div>
+
+      <header className="sticky top-0 z-20 bg-[#0e2a52]/70 backdrop-blur-md text-white border-b border-white/10 pt-[env(safe-area-inset-top)]">
+        <div className="max-w-6xl mx-auto px-3 sm:px-5 py-2.5 sm:py-3 flex items-center justify-between gap-3">
+          <div className={intro ? 'allo-drop' : ''}>
             <BrandLogo
-              size={72}
+              size={120}
               priority
-              className="h-14 w-14 sm:h-[4.5rem] sm:w-[4.5rem] drop-shadow-[0_8px_24px_rgba(0,0,0,0.35)]"
+              className="h-[4.25rem] w-[4.25rem] sm:h-20 sm:w-20 drop-shadow-[0_8px_28px_rgba(0,0,0,0.45)]"
             />
-            <div>
-              <h1 className="text-lg sm:text-2xl font-black tracking-tight leading-none">Allo Débouchage</h1>
-              <div className="text-[9px] sm:text-[10px] uppercase tracking-[0.2em] text-white/60 font-semibold mt-0.5">
-                CRM terrain
-              </div>
-            </div>
           </div>
           <div className="text-[10px] sm:text-[11px] text-white/70 text-right leading-tight">
             {new Date().toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' })}
@@ -111,7 +116,7 @@ export default function Home() {
         </div>
       </header>
 
-      <div className="max-w-6xl mx-auto px-3 sm:px-5 py-4 sm:py-6 space-y-4 sm:space-y-5">
+      <div className="relative z-10 max-w-6xl mx-auto px-3 sm:px-5 py-4 sm:py-6 space-y-4 sm:space-y-5">
         <section>
           <h2 className="text-[10px] uppercase tracking-[0.18em] text-white/50 font-semibold mb-2 px-0.5">
             Priorités
