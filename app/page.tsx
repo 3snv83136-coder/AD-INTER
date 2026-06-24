@@ -98,24 +98,16 @@ export default function Home() {
         </div>
       </header>
 
-      <section
-        className={`relative z-10 flex flex-col items-center justify-center px-4 pt-6 pb-8 sm:pt-10 sm:pb-10 ${intro ? 'allo-drop' : ''}`}
-      >
-        <div className="relative w-full max-w-[min(92vw,520px)]">
-          <div
-            aria-hidden
-            className="pointer-events-none absolute left-1/2 top-1/2 h-[120%] w-[120%] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#1e6fd9]/20 blur-3xl"
-          />
+      <div className="relative z-10 max-w-6xl mx-auto px-3 sm:px-5 pb-6 space-y-4 sm:space-y-5">
+        <div className={`flex justify-center pt-4 pb-1 sm:pt-5 ${intro ? 'allo-drop' : ''}`}>
           <BrandLogo
             variant="full"
-            size={160}
+            size={96}
             priority
-            className="relative mx-auto h-auto w-full max-w-[min(92vw,520px)] drop-shadow-[0_16px_48px_rgba(0,0,0,0.55)]"
+            className="h-auto w-full max-w-[220px] sm:max-w-[280px] drop-shadow-[0_8px_24px_rgba(0,0,0,0.45)]"
           />
         </div>
-      </section>
 
-      <div className="relative z-10 max-w-6xl mx-auto px-3 sm:px-5 pb-6 space-y-4 sm:space-y-5">
         <section>
           <h2 className="text-[10px] uppercase tracking-[0.18em] text-white/45 font-semibold mb-2 px-0.5">
             Priorités
