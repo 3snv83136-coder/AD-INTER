@@ -6,6 +6,8 @@ interface TerrainPhotoCaptureProps {
   legendeDefaut: string
   /** Appelé après upload réussi (URL publique de la photo) */
   onUploaded: (url: string, terrain_step: number) => void
+  /** Appelé si hors-ligne : photo mise en file d'attente locale */
+  onOfflineQueued?: () => void
   /** Texte du gros bouton principal */
   titre?: string
 }
@@ -18,10 +20,12 @@ export default function TerrainPhotoCapture({
   interventionId,
   legendeDefaut,
   onUploaded,
+  onOfflineQueued,
   titre = 'Prendre une photo',
 }: TerrainPhotoCaptureProps) {
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState('')
+  const [offlineSaved, setOfflineSaved] = useState(false)
   const [preview, setPreview] = useState<string | null>(null)
   const cameraInputRef = useRef<HTMLInputElement | null>(null)
   const galleryInputRef = useRef<HTMLInputElement | null>(null)
@@ -67,8 +71,9 @@ export default function TerrainPhotoCapture({
     if (!file) return
     setError('')
     setUploading(true)
+    let compressed: File | null = null
     try {
-      const compressed = await compress(file)
+      compressed = await compress(file)
       setPreview(URL.createObjectURL(compressed))
 
       const fd = new FormData()
@@ -84,8 +89,26 @@ export default function TerrainPhotoCapture({
 
       onUploaded(data.url, data.terrain_step)
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-      setPreview(null)
+      const isNetwork =
+        !navigator.onLine ||
+        (e instanceof TypeError) ||
+        (e instanceof Error && /fetch|network|failed/i.test(e.message))
+
+      if (isNetwork && compressed) {
+        try {
+          const { savePendingTerrainPhoto } = await import('@/lib/terrain-offline-store')
+          await savePendingTerrainPhoto(interventionId, legendeDefaut, compressed)
+          setOfflineSaved(true)
+          setError('')
+          onOfflineQueued?.()
+        } catch {
+          setError('Hors ligne — impossible de sauvegarder la photo localement.')
+          setPreview(null)
+        }
+      } else {
+        setError(e instanceof Error ? e.message : String(e))
+        setPreview(null)
+      }
     } finally {
       setUploading(false)
     }
@@ -162,6 +185,12 @@ export default function TerrainPhotoCapture({
         <div className="bg-blue-50 border-2 border-blue-200 rounded-2xl p-6 text-center">
           <div className="animate-spin h-8 w-8 border-3 border-blue-600 border-t-transparent rounded-full mx-auto mb-3"></div>
           <p className="text-sm font-bold text-blue-700">Envoi en cours…</p>
+        </div>
+      )}
+
+      {offlineSaved && (
+        <div className="bg-amber-50 border-2 border-amber-200 text-amber-900 p-3 rounded-xl text-sm font-semibold text-center">
+          📴 Photo sauvegardée sur l&apos;appareil — envoi automatique au retour du réseau.
         </div>
       )}
 

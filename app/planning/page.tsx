@@ -10,6 +10,7 @@ import { AGENCES } from "@/lib/agences"
 import { CANAUX_ACQUISITION } from "@/lib/canaux"
 import { fmtDateFR, fmtEUR } from "@/lib/format"
 import { TYPES_INTERVENTION as TYPES } from "@/lib/types-intervention"
+import { phaseCta, phaseLabel } from "@/lib/terrain-phases"
 
 type Statut = 'planifiee' | 'en_cours' | 'terminee' | 'annulee'
 
@@ -29,6 +30,7 @@ type InterventionRow = {
   date_realisee: string | null
   urgence: boolean
   statut: Statut
+  terrain_step?: number | null
   prix_prevu: number | null
   notes_internes: string | null
   publie_slug: string | null
@@ -415,10 +417,18 @@ function InterventionCard({
   techMode?: boolean
 }) {
   const href = techMode ? `/intervention/${i.id}/terrain` : `/intervention/${i.id}`
+  const step = i.terrain_step ?? 0
+  const cta = techMode
+    ? (i.statut === 'terminee' ? 'Voir' : phaseCta(step))
+    : null
+  const phase = techMode ? phaseLabel(step) : null
+
   return (
     <Link
       href={href}
-      className={`block bg-white rounded-xl border border-slate-200 hover:border-[#0e2a52] hover:shadow-md transition p-3 group ${CARD_STATUT_ACCENT[i.statut]}`}
+      className={`block bg-white rounded-2xl border-2 hover:border-emerald-500 hover:shadow-lg transition p-4 group ${
+        techMode ? 'border-slate-200 min-h-[148px] flex flex-col' : `border-slate-200 ${CARD_STATUT_ACCENT[i.statut]} p-3`
+      }`}
     >
       <div className="flex items-start justify-between gap-2 mb-1.5">
         <div className="min-w-0 flex-1">
@@ -477,8 +487,11 @@ function InterventionCard({
       )}
 
       {techMode && (
-        <div className="mt-2 pt-2 border-t border-slate-100 text-center text-xs font-black text-blue-700">
-          🚀 Mode terrain →
+        <div className="mt-auto pt-3">
+          <div className="text-[10px] uppercase tracking-wider text-slate-400 font-bold mb-1.5">{phase}</div>
+          <div className="w-full bg-emerald-600 group-hover:bg-emerald-700 text-white text-center rounded-xl py-3.5 font-black text-sm shadow-md transition">
+            {cta} →
+          </div>
         </div>
       )}
 

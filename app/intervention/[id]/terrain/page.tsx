@@ -5,6 +5,10 @@ import { useRouter } from "next/navigation"
 import { useSession } from "next-auth/react"
 import dynamic from "next/dynamic"
 import TerrainStepper from "@/components/terrain/TerrainStepper"
+import TerrainSimpleStepper from "@/components/terrain/TerrainSimpleStepper"
+import StepArriveeTech from "@/components/terrain/StepArriveeTech"
+import TerrainDiffusionTech from "@/components/terrain/TerrainDiffusionTech"
+import TerrainBigButton from "@/components/terrain/TerrainBigButton"
 import TerrainPhotoCapture from "@/components/terrain/TerrainPhotoCapture"
 import TerrainOceanLoader from "@/components/terrain/TerrainOceanLoader"
 import DevisEnvoiPanel from "@/components/DevisEnvoiPanel"
@@ -16,6 +20,11 @@ import { proxyImageUrl } from "@/lib/proxyImageUrl"
 import { buildSmsUri, isMobileForSms, openNativeSms } from "@/lib/sms"
 import { isDevisIntervention } from "@/lib/types-intervention"
 import { isAccordFinDeMois } from "@/lib/fin-de-mois"
+import {
+  clearTerrainDraft,
+  loadTerrainDraft,
+  saveTerrainDraft,
+} from "@/lib/terrain-offline-store"
 
 const VoiceRecorder = dynamic(() => import("@/components/VoiceRecorder"), { ssr: false })
 
@@ -174,6 +183,21 @@ function TerrainPageBody({
   const { data: session } = useSession()
   const isTech = session?.user?.role === 'tech'
   const showAccordTab = isTech && isAccordFinDeMois()
+  const [starting, setStarting] = useState(false)
+
+  useEffect(() => {
+    if (isTech && step === 5) void setStep(6)
+  }, [isTech, step, setStep])
+
+  async function handleTechStart() {
+    setStarting(true)
+    setError('')
+    try {
+      await callTerrainAction('debut')
+    } finally {
+      setStarting(false)
+    }
+  }
 
   return (
     <div className="allo-page pb-24">
@@ -205,7 +229,11 @@ function TerrainPageBody({
         </div>
       </nav>
 
-      <TerrainStepper current={step} onStepClick={setStep} hiddenSteps={isTech ? [7] : []} />
+      {isTech ? (
+        <TerrainSimpleStepper terrainStep={step} />
+      ) : (
+        <TerrainStepper current={step} onStepClick={setStep} hiddenSteps={[]} />
+      )}
 
       <main className="max-w-2xl mx-auto px-4 py-6">
         {error && (
@@ -214,7 +242,16 @@ function TerrainPageBody({
           </div>
         )}
 
-        {step === 0 && (
+        {isTech && step <= 1 && (
+          <StepArriveeTech
+            interv={interv}
+            onStart={handleTechStart}
+            onPhotoUploaded={load}
+            onError={setError}
+            starting={starting}
+          />
+        )}
+        {!isTech && step === 0 && (
           <StepPhotoAvant
             interv={interv}
             onPhotoUploaded={async () => { await load() }}
@@ -222,11 +259,11 @@ function TerrainPageBody({
             onError={setError}
           />
         )}
-        {step === 1 && <StepDemarrer interv={interv} onAction={() => callTerrainAction('debut')} />}
-        {step === 2 && <StepEnCours interv={interv} onPhotoUploaded={load} onTerminer={() => callTerrainAction('fin')} onError={setError} onSkipToRapport={() => setStep(3)} />}
-        {step === 3 && <StepRapport interv={interv} onSaved={load} onError={setError} />}
-        {step === 4 && <StepFacture interv={interv} client={client} onCreated={load} onError={setError} />}
-        {step === 5 && (
+        {!isTech && step === 1 && <StepDemarrer interv={interv} onAction={() => callTerrainAction('debut')} />}
+        {step === 2 && <StepEnCours interv={interv} onPhotoUploaded={load} onTerminer={() => callTerrainAction('fin')} onError={setError} onSkipToRapport={() => setStep(3)} simple={isTech} />}
+        {step === 3 && <StepRapport interv={interv} onSaved={load} onError={setError} simple={isTech} />}
+        {step === 4 && <StepFacture interv={interv} client={client} onCreated={load} onError={setError} simple={isTech} />}
+        {!isTech && step === 5 && (
           <StepDevisOption
             interv={interv}
             client={client}
@@ -245,6 +282,13 @@ function TerrainPageBody({
         )}
         {step >= 7 && !isTech && (
           <StepTermine interv={interv} client={client} onRefresh={load} onError={setError} techOnlyMail={isTech} />
+        )}
+        {isTech && step >= 6 && (interv.mail_envoye_at || interv.sms_envoye_at) && (
+          <div className="mt-6">
+            <Link href="/planning" className="block text-center">
+              <TerrainBigButton variant="secondary">📅 Retour au planning</TerrainBigButton>
+            </Link>
+          </div>
         )}
       </main>
     </div>
@@ -345,12 +389,13 @@ function StepDemarrer({ interv, onAction }: { interv: Intervention; onAction: ()
 // ============================================================
 // ÉTAPE 2 — En cours (chrono + photo après + terminer)
 // ============================================================
-function StepEnCours({ interv, onPhotoUploaded, onTerminer, onError, onSkipToRapport }: {
+function StepEnCours({ interv, onPhotoUploaded, onTerminer, onError, onSkipToRapport, simple = false }: {
   interv: Intervention
   onPhotoUploaded: () => void
   onTerminer: () => void
   onError: (e: string) => void
   onSkipToRapport: () => void
+  simple?: boolean
 }) {
   const [elapsed, setElapsed] = useState('')
 
@@ -398,22 +443,35 @@ function StepEnCours({ interv, onPhotoUploaded, onTerminer, onError, onSkipToRap
         )}
       </div>
 
-      <div className="flex gap-3">
-        <button
-          type="button"
-          onClick={onTerminer}
-          className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl py-4 font-black text-base shadow-lg transition"
-        >
-          ✓ Terminer le travail
-        </button>
-        {hasPhotoApres && (
-          <button
-            type="button"
-            onClick={onSkipToRapport}
-            className="bg-blue-600 hover:bg-blue-700 text-white rounded-2xl py-4 px-5 font-bold text-sm shadow-lg transition"
-          >
-            🎤 →
-          </button>
+      <div className={simple ? 'space-y-3' : 'flex gap-3'}>
+        {simple ? (
+          <>
+            <TerrainBigButton onClick={onTerminer}>✓ J&apos;AI FINI — PASSER AU RAPPORT</TerrainBigButton>
+            {hasPhotoApres && (
+              <TerrainBigButton variant="secondary" onClick={onSkipToRapport}>
+                Passer sans changer la photo
+              </TerrainBigButton>
+            )}
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={onTerminer}
+              className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl py-4 font-black text-base shadow-lg transition"
+            >
+              ✓ Terminer le travail
+            </button>
+            {hasPhotoApres && (
+              <button
+                type="button"
+                onClick={onSkipToRapport}
+                className="bg-blue-600 hover:bg-blue-700 text-white rounded-2xl py-4 px-5 font-bold text-sm shadow-lg transition"
+              >
+                🎤 →
+              </button>
+            )}
+          </>
         )}
       </div>
     </section>
@@ -423,14 +481,27 @@ function StepEnCours({ interv, onPhotoUploaded, onTerminer, onError, onSkipToRap
 // ============================================================
 // ÉTAPE 3 — Rapport (dictée + génération + preview + validation)
 // ============================================================
-function StepRapport({ interv, onSaved, onError }: { interv: Intervention; onSaved: () => void; onError: (e: string) => void }) {
+function StepRapport({ interv, onSaved, onError, simple = false }: { interv: Intervention; onSaved: () => void; onError: (e: string) => void; simple?: boolean }) {
   const [transcription, setTranscription] = useState('')
   const [generating, setGenerating] = useState(false)
   const [genDone, setGenDone] = useState(false)
-  // rapportPreview = rapport généré en mémoire, pas encore validé/sauvegardé
   const [rapportPreview, setRapportPreview] = useState<any | null>(null)
   const [seoPreview, setSeoPreview] = useState<any | null>(null)
   const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    void loadTerrainDraft(interv.id, 'transcription').then(draft => {
+      if (draft?.data?.text) setTranscription(draft.data.text)
+    })
+  }, [interv.id])
+
+  useEffect(() => {
+    if (!transcription.trim()) return
+    const timer = setTimeout(() => {
+      void saveTerrainDraft(interv.id, 'transcription', { text: transcription })
+    }, 600)
+    return () => clearTimeout(timer)
+  }, [transcription, interv.id])
 
   async function handleGenerate() {
     if (!transcription || transcription.trim().length < 20) {
@@ -485,6 +556,8 @@ function StepRapport({ interv, onSaved, onError }: { interv: Intervention; onSav
       })
       const saveData = await saveRes.json()
       if (!saveRes.ok) throw new Error(saveData.error || 'Sauvegarde échouée')
+
+      await clearTerrainDraft(interv.id, 'transcription')
 
       // Bump step à 4
       await fetch(`/api/interventions/${interv.id}/terrain-step`, {
@@ -621,14 +694,23 @@ function StepRapport({ interv, onSaved, onError }: { interv: Intervention; onSav
         <p className="text-[11px] text-slate-400">{transcription.length} caractères</p>
       </div>
 
-      <button
-        type="button"
-        onClick={handleGenerate}
-        disabled={transcription.trim().length < 20}
-        className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-2xl py-5 font-black text-lg shadow-lg transition"
-      >
-        ✨ Générer le rapport
-      </button>
+      {simple ? (
+        <TerrainBigButton disabled={transcription.trim().length < 20} onClick={handleGenerate}>
+          ✨ GÉNÉRER LE RAPPORT
+        </TerrainBigButton>
+      ) : (
+        <button
+          type="button"
+          onClick={handleGenerate}
+          disabled={transcription.trim().length < 20}
+          className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-2xl py-5 font-black text-lg shadow-lg transition"
+        >
+          ✨ Générer le rapport
+        </button>
+      )}
+      {simple && transcription.trim().length > 0 && (
+        <p className="text-xs text-center text-amber-700 font-semibold">📴 Brouillon sauvegardé sur l&apos;appareil</p>
+      )}
     </section>
   )
 }
@@ -656,11 +738,12 @@ type LigneFacture = {
 
 const UNITES = ['forfait', 'h', 'u', 'ml', 'm²', 'm³'] as const
 
-function StepFacture({ interv, client, onCreated, onError }: {
+function StepFacture({ interv, client, onCreated, onError, simple = false }: {
   interv: Intervention
   client: Client
   onCreated: () => void
   onError: (e: string) => void
+  simple?: boolean
 }) {
   const [lignes, setLignes] = useState<LigneFacture[]>([])
   const [objet, setObjet] = useState('')
@@ -764,6 +847,40 @@ function StepFacture({ interv, client, onCreated, onError }: {
       <section className="space-y-3 text-center py-10">
         <div className="animate-spin h-10 w-10 border-3 border-blue-600 border-t-transparent rounded-full mx-auto"></div>
         <p className="text-sm text-slate-500">Préparation de la facture…</p>
+      </section>
+    )
+  }
+
+  if (simple) {
+    return (
+      <section className="space-y-5">
+        <header className="text-center">
+          <h1 className="text-2xl sm:text-3xl font-black text-slate-900">Facture</h1>
+          <p className="text-4xl font-black text-emerald-700 mt-4 tabular-nums">{totalTTC.toFixed(2)} € TTC</p>
+          <p className="text-xs text-slate-500 mt-1">Vérifiez le montant avant validation.</p>
+        </header>
+
+        <div className="bg-white rounded-2xl border-2 border-slate-200 p-4 space-y-3">
+          <label className="block text-xs font-bold uppercase text-slate-500">Paiement</label>
+          <select
+            value={echeance}
+            onChange={e => setEcheance(e.target.value as typeof echeance)}
+            className="w-full border-2 border-slate-200 rounded-xl px-4 py-3 text-base bg-white"
+          >
+            <option value="Réglée">Réglée sur place</option>
+            <option value="À réception">À réception</option>
+            <option value="30 jours">30 jours</option>
+          </select>
+        </div>
+
+        <details className="bg-slate-50 rounded-xl border border-slate-200 p-3 text-sm text-slate-600">
+          <summary className="font-bold cursor-pointer">Modifier le détail ({lignes.length} ligne{lignes.length > 1 ? 's' : ''})</summary>
+          <p className="mt-2">{objet || 'Intervention'}</p>
+        </details>
+
+        <TerrainBigButton onClick={handleCreate} loading={creating}>
+          ✓ VALIDER LA FACTURE
+        </TerrainBigButton>
       </section>
     )
   }
@@ -1622,6 +1739,26 @@ function TerrainDiffusionPanel({ interv, client, onRefresh, onError, techOnlyMai
 
   const actionBtn = (done: boolean, color: string) =>
     `w-full disabled:opacity-50 text-white rounded-2xl py-4 font-black text-base shadow-lg transition ${done ? 'ring-2 ring-emerald-300 ' : ''}${color}`
+
+  if (techOnlyMail) {
+    return (
+      <TerrainDiffusionTech
+        nom={nom}
+        email={email}
+        telephone={telephone}
+        onNomChange={setNom}
+        onEmailChange={setEmail}
+        onTelChange={setTelephone}
+        onError={onError}
+        prepareAndSendMail={handleSendMail}
+        prepareAndSendSms={handleSendSms}
+        busy={!!busy}
+        progress={progress}
+        mailDone={mailDone}
+        smsDone={smsDone}
+      />
+    )
+  }
 
   return (
     <section className="space-y-5">
