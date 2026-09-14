@@ -4,6 +4,7 @@ import { useState } from "react"
 import VilleCombobox from "@/components/VilleCombobox"
 import { SiretLookup } from "@/components/SiretLookup"
 import { TextoPasteFill } from "@/components/TextoPasteFill"
+import { parseSousTraitantNotes } from "@/lib/sous-traitant-notes"
 
 export type SousTraitantLite = {
   id: string
@@ -16,10 +17,13 @@ export type SousTraitantLite = {
 export function CreationSousTraitant({
   sts,
   onCreated,
+  onUpdated,
 }: {
   sts: SousTraitantLite[]
   onCreated: (st: SousTraitantLite) => void
+  onUpdated?: (st: SousTraitantLite) => void
 }) {
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [nom, setNom] = useState("")
   const [email, setEmail] = useState("")
   const [tel, setTel] = useState("")
@@ -33,6 +37,7 @@ export function CreationSousTraitant({
   const [ok, setOk] = useState("")
 
   function reset() {
+    setEditingId(null)
     setNom("")
     setEmail("")
     setTel("")
@@ -41,6 +46,24 @@ export function CreationSousTraitant({
     setVille("")
     setSiret("")
     setNotes("")
+  }
+
+  function loadForEdit(st: SousTraitantLite) {
+    const parsed = parseSousTraitantNotes(st.notes)
+    setEditingId(st.id)
+    setNom(st.nom)
+    setEmail(st.email || "")
+    setTel(st.telephone || "")
+    setAdresse(parsed.adresse)
+    setCp(parsed.code_postal)
+    setVille(parsed.ville)
+    setSiret(parsed.siret)
+    setNotes(parsed.notes)
+    setError("")
+    setOk("")
+    if (typeof window !== "undefined") {
+      window.scrollTo({ top: 0, behavior: "smooth" })
+    }
   }
 
   async function handleSubmit() {
@@ -52,8 +75,9 @@ export function CreationSousTraitant({
     setError("")
     setOk("")
     try {
-      const res = await fetch("/api/sous-traitants", {
-        method: "POST",
+      const url = editingId ? `/api/sous-traitants/${editingId}` : "/api/sous-traitants"
+      const res = await fetch(url, {
+        method: editingId ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           nom,
@@ -67,12 +91,17 @@ export function CreationSousTraitant({
         }),
       })
       const data = await res.json() as { error?: string; sous_traitant?: SousTraitantLite }
-      if (!res.ok || !data.sous_traitant) throw new Error(data.error || "Création impossible")
-      onCreated(data.sous_traitant)
+      if (!res.ok || !data.sous_traitant) throw new Error(data.error || "Enregistrement impossible")
+      if (editingId) {
+        onUpdated?.(data.sous_traitant)
+        setOk(`${data.sous_traitant.nom} a été mis à jour.`)
+      } else {
+        onCreated(data.sous_traitant)
+        setOk(`${data.sous_traitant.nom} est enregistré.`)
+      }
       reset()
-      setOk(`${data.sous_traitant.nom} est enregistré.`)
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Création impossible")
+      setError(e instanceof Error ? e.message : "Enregistrement impossible")
     } finally {
       setSubmitting(false)
     }
@@ -81,11 +110,26 @@ export function CreationSousTraitant({
   return (
     <div className="space-y-4">
       <div className="bg-white text-slate-800 rounded-2xl shadow-xl p-5 space-y-4">
-        <div>
-          <h2 className="font-black text-[#0e2a52]">Nouveau sous-traitant</h2>
-          <p className="text-sm text-slate-500 mt-0.5">
-            Colle un texto ou un SIRET : raison sociale et adresse se remplissent tout seuls.
-          </p>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="font-black text-[#0e2a52]">
+              {editingId ? "Modifier le sous-traitant" : "Nouveau sous-traitant"}
+            </h2>
+            <p className="text-sm text-slate-500 mt-0.5">
+              {editingId
+                ? "Corrige raison sociale, contact ou adresse, puis enregistre."
+                : "Colle un texto ou un SIRET : raison sociale et adresse se remplissent tout seuls."}
+            </p>
+          </div>
+          {editingId ? (
+            <button
+              type="button"
+              onClick={reset}
+              className="shrink-0 text-sm font-semibold text-slate-500 hover:text-slate-800"
+            >
+              Annuler
+            </button>
+          ) : null}
         </div>
 
         {error ? <p className="text-sm text-red-600 font-semibold">{error}</p> : null}
@@ -162,7 +206,11 @@ export function CreationSousTraitant({
           onClick={() => void handleSubmit()}
           className="w-full rounded-xl bg-[#0e2a52] text-white font-bold py-3 disabled:opacity-50"
         >
-          {submitting ? "Enregistrement…" : "Enregistrer le sous-traitant"}
+          {submitting
+            ? "Enregistrement…"
+            : editingId
+              ? "Enregistrer les modifications"
+              : "Enregistrer le sous-traitant"}
         </button>
       </div>
 
@@ -175,14 +223,30 @@ export function CreationSousTraitant({
         ) : (
           <ul className="space-y-2">
             {sts.map((s) => (
-              <li key={s.id} className="rounded-xl bg-white text-slate-800 px-4 py-3">
-                <div className="font-bold text-[#0e2a52]">{s.nom}</div>
-                <p className="text-sm text-slate-500">
-                  {[s.telephone, s.email].filter(Boolean).join(" · ") || "Pas de contact"}
-                </p>
-                {s.notes ? (
-                  <p className="text-xs text-slate-500 mt-1 whitespace-pre-line">{s.notes}</p>
-                ) : null}
+              <li
+                key={s.id}
+                className={`rounded-xl bg-white text-slate-800 px-4 py-3 ${
+                  editingId === s.id ? "ring-2 ring-[#0e2a52]" : ""
+                }`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="font-bold text-[#0e2a52]">{s.nom}</div>
+                    <p className="text-sm text-slate-500">
+                      {[s.telephone, s.email].filter(Boolean).join(" · ") || "Pas de contact"}
+                    </p>
+                    {s.notes ? (
+                      <p className="text-xs text-slate-500 mt-1 whitespace-pre-line">{s.notes}</p>
+                    ) : null}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => loadForEdit(s)}
+                    className="shrink-0 rounded-lg bg-[#0e2a52] text-white text-xs font-bold px-3 py-1.5"
+                  >
+                    Modifier
+                  </button>
+                </div>
               </li>
             ))}
           </ul>

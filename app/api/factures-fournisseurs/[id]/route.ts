@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { dbNotConfiguredResponse, getPrismaOrNull } from '@/lib/db'
 import type { FactureFournisseur } from '@/lib/types'
+import { getSessionUser } from "@/lib/intervention-access"
+import { requireFullAdmin } from "@/lib/permissions"
 
 export const dynamic = 'force-dynamic'
 
@@ -49,6 +51,8 @@ export async function PUT(
   req: NextRequest,
   ctx: { params: { id: string } },
 ) {
+  const denied = requireFullAdmin((await getSessionUser())?.role)
+  if (denied) return denied
   const prisma = getPrismaOrNull()
   if (!prisma) {
     const err = dbNotConfiguredResponse()
@@ -114,6 +118,8 @@ export async function DELETE(
   _req: NextRequest,
   ctx: { params: { id: string } },
 ) {
+  const denied = requireFullAdmin((await getSessionUser())?.role)
+  if (denied) return denied
   const prisma = getPrismaOrNull()
   if (!prisma) {
     const err = dbNotConfiguredResponse()

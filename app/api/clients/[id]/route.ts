@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { dbNotConfiguredResponse, getPrismaOrNull } from "@/lib/db"
+import { getSessionUser } from "@/lib/intervention-access"
+import { OPERATOR_CLIENT_FIELDS, requireFullAdmin } from "@/lib/permissions"
 
 export const dynamic = 'force-dynamic'
 
@@ -60,9 +62,14 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'JSON invalide' }, { status: 400 })
   }
 
+  const role = (await getSessionUser())?.role
+  const allowed = !role || role === "admin"
+    ? UPDATABLE
+    : new Set<string>(OPERATOR_CLIENT_FIELDS)
+
   const update: Record<string, string | null> = {}
   for (const [k, v] of Object.entries(body)) {
-    if (!UPDATABLE.has(k)) continue
+    if (!allowed.has(k)) continue
     if (typeof v === 'string') {
       const trimmed = v.trim()
       update[k] = trimmed === '' ? null : trimmed
@@ -103,6 +110,8 @@ export async function PATCH(req: NextRequest, { params }: Params) {
  * il faut d'abord les supprimer pour préserver la cohérence de l'historique.
  */
 export async function DELETE(_req: NextRequest, { params }: Params) {
+  const denied = requireFullAdmin((await getSessionUser())?.role)
+  if (denied) return denied
   const prisma = getPrismaOrNull()
   if (!prisma) {
     const { error, status } = dbNotConfiguredResponse()

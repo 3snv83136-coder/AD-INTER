@@ -164,7 +164,7 @@ export default function RapporteurApp({ tarif }: { tarif: Tarif }) {
         <div className="inline-flex items-center gap-1 p-1 bg-white/10 rounded-2xl">
           {([
             { id: "affaires" as const, label: "Affaires" },
-            { id: "sous-traitants" as const, label: "Création sous-traitant" },
+            { id: "sous-traitants" as const, label: "Sous-traitants" },
           ]).map((t) => (
             <button
               key={t.id}
@@ -189,6 +189,11 @@ export default function RapporteurApp({ tarif }: { tarif: Tarif }) {
           <CreationSousTraitant
             sts={sts}
             onCreated={(st) => setSts((prev) => [...prev, st].sort((a, b) => a.nom.localeCompare(b.nom, "fr")))}
+            onUpdated={(st) =>
+              setSts((prev) =>
+                prev.map((s) => (s.id === st.id ? st : s)).sort((a, b) => a.nom.localeCompare(b.nom, "fr")),
+              )
+            }
           />
         ) : (
           <>

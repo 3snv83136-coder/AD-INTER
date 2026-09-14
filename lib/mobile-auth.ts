@@ -88,7 +88,7 @@ export async function verifyMobileToken(token: string): Promise<MobileTokenPaylo
   try {
     const payload = JSON.parse(b64UrlToUtf8(body)) as MobileTokenPayload
     if (!payload?.sub || !payload.role || !payload.exp) return null
-    if (payload.role !== "admin" && payload.role !== "tech") return null
+    if (payload.role !== "admin" && payload.role !== "operateur" && payload.role !== "tech") return null
     if (payload.exp < Math.floor(Date.now() / 1000)) return null
     return payload
   } catch {

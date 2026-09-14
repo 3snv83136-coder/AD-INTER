@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { dbNotConfiguredResponse, getPrismaOrNull } from '@/lib/db'
 import { deleteBlobs } from '@/lib/storage'
+import { getSessionUser } from "@/lib/intervention-access"
+import { requireFullAdmin } from "@/lib/permissions"
 
 export const dynamic = 'force-dynamic'
 
 type Params = { params: { id: string } }
 
 export async function DELETE(_req: NextRequest, { params }: Params) {
+  const denied = requireFullAdmin((await getSessionUser())?.role)
+  if (denied) return denied
   const prisma = getPrismaOrNull()
   if (!prisma) {
     const err = dbNotConfiguredResponse()

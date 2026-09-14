@@ -4,6 +4,7 @@ import Image from "next/image"
 import Link from "next/link"
 import { BackLink } from "@/components/BackLink"
 import { ICON_512_PATH } from "@/lib/brand"
+import { useAccess } from "@/components/useAccess"
 
 type SubLink = { href: string; label: string; desc: string }
 
@@ -174,8 +175,18 @@ function ModuleTile({ t }: { t: ModuleTile }) {
   )
 }
 
+const CONNEXIONS_TILE: ModuleTile = {
+  href: '/connexions',
+  emoji: '🟢',
+  label: 'Connexions',
+  desc: 'Qui est en ligne',
+  bg: 'bg-gradient-to-br from-emerald-400 to-teal-700',
+}
+
 export default function Home() {
   const [intro, setIntro] = useState(false)
+  const { isFullAdmin } = useAccess()
+  const modules = isFullAdmin ? [...MODULES, CONNEXIONS_TILE] : MODULES
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -218,13 +229,13 @@ export default function Home() {
         <section>
           <h2 className="text-[10px] uppercase tracking-[0.18em] text-white/45 font-semibold mb-2 px-0.5">
             Tous les modules
-            <span className="ml-2 text-white/35 tabular-nums">{MODULES.length}</span>
+            <span className="ml-2 text-white/35 tabular-nums">{modules.length}</span>
           </h2>
           <div
             className="grid gap-2 sm:gap-2.5"
             style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 118px), 1fr))' }}
           >
-            {MODULES.map(t => (
+            {modules.map(t => (
               <ModuleTile key={`${t.href}-${t.label}`} t={t} />
             ))}
           </div>

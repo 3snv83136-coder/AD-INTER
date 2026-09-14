@@ -3,6 +3,8 @@ import { dbNotConfiguredResponse, getPrismaOrNull } from "@/lib/db"
 import type { DocumentStatut } from "@/lib/types"
 import { cascadeDeleteDocument } from "@/lib/cascadeDelete"
 import { annulerRelancesFacture } from "@/lib/facture-relance"
+import { getSessionUser } from "@/lib/intervention-access"
+import { canEditDevis, requireFullAdmin } from "@/lib/permissions"
 
 export const dynamic = 'force-dynamic'
 
@@ -94,6 +96,8 @@ export async function DELETE(
   _req: NextRequest,
   ctx: { params: { id: string } },
 ) {
+  const denied = requireFullAdmin((await getSessionUser())?.role)
+  if (denied) return denied
   const id = ctx.params.id
   if (!id) return NextResponse.json({ error: 'id manquant' }, { status: 400 })
 
@@ -143,6 +147,21 @@ export async function PATCH(
   const id = ctx.params.id
   if (!id) {
     return NextResponse.json({ error: 'id manquant' }, { status: 400 })
+  }
+
+  const role = (await getSessionUser())?.role
+  if (role === "operateur" || role === "tech") {
+    const current = await prisma.document.findUnique({
+      where: { id },
+      select: { type: true },
+    })
+    if (!current) return NextResponse.json({ error: 'Document introuvable' }, { status: 404 })
+    if (current.type !== "devis" || !canEditDevis(role)) {
+      return NextResponse.json(
+        { error: "Cette action est réservée à l’administrateur." },
+        { status: 403 },
+      )
+    }
   }
 
   let body: Record<string, unknown>

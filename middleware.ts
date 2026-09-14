@@ -77,6 +77,10 @@ export default auth(async (req) => {
     }
   }
 
+  if (role !== "admin" && (pathname === "/connexions" || pathname.startsWith("/connexions/"))) {
+    return NextResponse.redirect(new URL(homePathForRole(role), req.nextUrl.origin))
+  }
+
   return NextResponse.next()
 })
 

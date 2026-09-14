@@ -8,6 +8,9 @@ import {
 } from "@/lib/facture-relance"
 import { persistFacture } from "@/lib/persist"
 import { getTelPrincipal } from "@/lib/parametres"
+import { getSessionUser } from "@/lib/intervention-access"
+import { canEditFacture } from "@/lib/permissions"
+import { findDocumentId } from "@/lib/db-helpers"
 
 export const maxDuration = 30
 
@@ -91,13 +94,19 @@ export async function POST(req: NextRequest) {
 
   if (facture) {
     try {
-      docId = await persistFacture({
-        facture, clientNom, clientEmail, clientAdresse, clientCP, ville,
-        agence, numero, totalHT, totalTTC, tvaTaux, echeance,
-        emailSent: true,
-        relanceIds: reglee ? [] : relanceIds,
-      })
-      if (!docId) persistError = "Sauvegarde DB impossible (vérifie les logs serveur)"
+      const role = (await getSessionUser())?.role
+      const existing = await findDocumentId("facture", numero)
+      if (existing && role && !canEditFacture(role)) {
+        persistError = "Facture déjà enregistrée — modification réservée à l’administrateur."
+      } else {
+        docId = await persistFacture({
+          facture, clientNom, clientEmail, clientAdresse, clientCP, ville,
+          agence, numero, totalHT, totalTTC, tvaTaux, echeance,
+          emailSent: true,
+          relanceIds: reglee ? [] : relanceIds,
+        })
+        if (!docId) persistError = "Sauvegarde DB impossible (vérifie les logs serveur)"
+      }
     } catch (e: any) {
       persistError = e?.message || 'Erreur de sauvegarde DB'
       console.error('[notify-facture] persist', e)

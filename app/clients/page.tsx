@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
+import { useAccess } from "@/components/useAccess"
 
 type Client = {
   id: string | null
@@ -113,6 +114,7 @@ function clientKey(c: { id: string | null; nom: string; email: string | null }):
 }
 
 export default function ClientsPage() {
+  const { canDelete, isFullAdmin } = useAccess()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [allClients, setAllClients] = useState<Client[]>([])
@@ -168,7 +170,7 @@ export default function ClientsPage() {
   async function saveEditClient() {
     if (!editModal.id) return
     const nom = editModal.form.nom.trim()
-    if (!nom) {
+    if (isFullAdmin && !nom) {
       setEditModal(s => ({ ...s, error: 'Le nom est obligatoire.' }))
       return
     }
@@ -177,14 +179,22 @@ export default function ClientsPage() {
       const res = await fetch(`/api/clients/${editModal.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          nom,
-          email: editModal.form.email,
-          telephone: editModal.form.telephone,
-          adresse: editModal.form.adresse,
-          code_postal: editModal.form.code_postal,
-          ville: editModal.form.ville,
-        }),
+        body: JSON.stringify(isFullAdmin
+          ? {
+              nom,
+              email: editModal.form.email,
+              telephone: editModal.form.telephone,
+              adresse: editModal.form.adresse,
+              code_postal: editModal.form.code_postal,
+              ville: editModal.form.ville,
+            }
+          : {
+              email: editModal.form.email,
+              telephone: editModal.form.telephone,
+              adresse: editModal.form.adresse,
+              code_postal: editModal.form.code_postal,
+              ville: editModal.form.ville,
+            }),
       })
       const body = await res.json().catch(() => null)
       if (!res.ok) throw new Error(body?.error || `HTTP ${res.status}`)
@@ -592,6 +602,7 @@ export default function ClientsPage() {
                     </div>
                     <span className={`text-slate-400 transition-transform ${isOpen ? 'rotate-180' : ''}`}>▾</span>
                   </button>
+                  {canDelete ? (
                   <button
                     onClick={() => handleDeleteClient(d)}
                     disabled={deletingKey === d.key}
@@ -602,6 +613,7 @@ export default function ClientsPage() {
                   >
                     {deletingKey === d.key ? '⏳' : '🗑'}
                   </button>
+                  ) : null}
                 </div>
 
                 {isOpen && (
@@ -622,11 +634,13 @@ export default function ClientsPage() {
                         disabled={!d.client.email && !d.documents.length && !d.interventions.length}
                         className="px-3 py-1.5 text-xs rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40"
                       >✉ Envoyer le récap</button>
+                      {canDelete && (
                       <button
                         onClick={() => handleDeleteClient(d)}
                         disabled={deletingKey === d.key}
                         className="px-3 py-1.5 text-xs rounded-lg bg-white border border-red-200 text-red-700 hover:bg-red-50 disabled:opacity-40"
                       >{deletingKey === d.key ? '⏳ Suppression…' : '🗑 Supprimer ce client'}</button>
+                      )}
                     </div>
                     {(d.interventions.length > 0 || d.documents.length > 0) && (
                       <p className="text-[11px] text-slate-500">
@@ -787,7 +801,7 @@ export default function ClientsPage() {
                   value={editModal.form.nom}
                   onChange={e => setEditModal(s => ({ ...s, form: { ...s.form, nom: e.target.value }, error: null }))}
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:border-[#0e2a52] outline-none text-sm"
-                  disabled={editModal.saving}
+                  disabled={editModal.saving || !isFullAdmin}
                 />
               </label>
               <label className="block">

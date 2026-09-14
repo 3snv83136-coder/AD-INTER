@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import dynamic from "next/dynamic"
 import AppTabs from "@/components/AppTabs"
+import { useAccess } from "@/components/useAccess"
 import { fmtDateFR, fmtEUR, fmtDateISOtoFR } from "@/lib/format"
 import { parseEcheance } from "@/lib/echeance"
 import { AGENCES } from "@/lib/agences"
@@ -73,6 +74,7 @@ function presetThisMonth(): { from: string; to: string } {
 }
 
 export default function FactureConsolePage() {
+  const { canDelete, canEditFacture } = useAccess()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
@@ -480,8 +482,8 @@ export default function FactureConsolePage() {
                     const isPending = pendingId === f.id
                     const isPaid = f.statut === 'paye'
                     const isCancelled = f.statut === 'annule'
-                    const canMarkPaid = !isPaid && !isCancelled
-                    const canCancel = !isCancelled
+                    const canMarkPaid = canEditFacture && !isPaid && !isCancelled
+                    const canCancel = canEditFacture && !isCancelled
                     const canRelancer = f.statut === 'envoye'
                     return (
                       <tr key={f.id} className={`border-t border-slate-100 hover:bg-slate-50 ${isPending ? 'opacity-50' : ''}`}>
@@ -595,6 +597,7 @@ export default function FactureConsolePage() {
                                 <NoSymbolIcon className="w-4 h-4" />
                               </button>
                             )}
+                            {canDelete && (
                             <button
                               type="button"
                               onClick={() => handleSupprimer(f)}
@@ -605,6 +608,7 @@ export default function FactureConsolePage() {
                             >
                               <TrashIcon className="w-4 h-4" />
                             </button>
+                            )}
                           </div>
                         </td>
                       </tr>

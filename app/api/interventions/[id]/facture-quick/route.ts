@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server"
 import { getPrismaOrNull, dbNotConfiguredResponse } from "@/lib/db"
 import { buildFactureFromRapport } from "@/lib/rapportToFacture"
 import { persistFacture } from "@/lib/persist"
+import { getSessionUser } from "@/lib/intervention-access"
+import { canEditFacture } from "@/lib/permissions"
+import { findDocumentId } from "@/lib/db-helpers"
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
@@ -114,6 +117,17 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   const totalHT = facture.lignes.reduce((sum: number, l) => sum + (l.inclus ? 0 : (Number(l.qte) || 0) * (Number(l.pu_ht) || 0)), 0)
   const totalTTC = totalHT * (1 + (facture.tva_taux ?? 10) / 100)
+
+  const role = (await getSessionUser())?.role
+  if (role && !canEditFacture(role)) {
+    const existing = await findDocumentId("facture", facture.numero)
+    if (existing) {
+      return NextResponse.json(
+        { error: "Cette action est réservée à l’administrateur." },
+        { status: 403 },
+      )
+    }
+  }
 
   const factureId = await persistFacture({
     facture,

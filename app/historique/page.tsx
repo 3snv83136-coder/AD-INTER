@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from "react"
 import dynamic from "next/dynamic"
 import AppTabs from "@/components/AppTabs"
+import { useAccess } from "@/components/useAccess"
 import { fmtDateFR, fmtEUR } from "@/lib/format"
 
 const DocumentDownloadButton = dynamic(() => import("@/components/DocumentDownloadButton"), { ssr: false })
@@ -86,6 +87,7 @@ const TYPE_ICON: Record<string, string> = {
 }
 
 export default function HistoriquePage() {
+  const { canDelete } = useAccess()
   const [tab, setTab] = useState<typeof TABS[number]['key']>('all')
   const [q, setQ] = useState('')
   const [loading, setLoading] = useState(true)
@@ -316,6 +318,7 @@ export default function HistoriquePage() {
                         </div>
                       </td>
                       <td className="px-2 py-3 text-center">
+                        {canDelete ? (
                         <button
                           type="button"
                           onClick={() => handleDeleteIntervention(i)}
@@ -324,6 +327,7 @@ export default function HistoriquePage() {
                           aria-label={`Supprimer intervention ${i.reference || ''}`}
                           title="Supprimer l'intervention"
                         >{deletingId === i.id ? '…' : '×'}</button>
+                        ) : null}
                       </td>
                     </tr>
                   ))}
@@ -398,6 +402,7 @@ export default function HistoriquePage() {
                         </div>
                       </td>
                       <td className="px-2 py-3 text-center">
+                        {canDelete ? (
                         <button
                           type="button"
                           onClick={() => handleDeleteDoc(d)}
@@ -406,6 +411,7 @@ export default function HistoriquePage() {
                           aria-label={`Supprimer ${d.type} ${d.numero || ''}`}
                           title="Supprimer"
                         >{deletingId === d.id ? '…' : '×'}</button>
+                        ) : null}
                       </td>
                     </tr>
                   ))}

@@ -1,6 +1,6 @@
 import bcrypt from "bcryptjs"
 
-export type AuthRole = "admin" | "tech"
+export type AuthRole = "admin" | "operateur" | "tech"
 
 export type AuthAccount = {
   id: string
@@ -10,6 +10,14 @@ export type AuthAccount = {
   passwordHash: string | null
   /** UUID technicien Supabase (comptes tech) */
   technicienId: string | null
+  /** Libellé d’affichage (ex. « 31 10 ») pour la présence. */
+  accessLabel?: string
+}
+
+export function formatAccessCode(password: string): string {
+  const digits = password.replace(/\D/g, "")
+  if (digits.length === 4) return `${digits.slice(0, 2)} ${digits.slice(2)}`
+  return password.trim()
 }
 
 function normalizeBcryptHash(raw: string): string {
@@ -37,12 +45,21 @@ function loadAdmins(): AuthAccount[] {
   return accounts
 }
 
-function loadAdminPasswords(): string[] {
-  const raw = process.env.AUTH_ADMIN_PASSWORDS || ""
+function loadPasswordList(raw: string): string[] {
   return raw
     .split(/[,;]+/)
     .map((s) => s.trim().replace(/\s+/g, ""))
     .filter(Boolean)
+}
+
+function loadAdminPasswords(): string[] {
+  return loadPasswordList(process.env.AUTH_ADMIN_PASSWORDS || "")
+}
+
+/** Accès complets : 3110 et 1004 (surcharge possible via AUTH_ADMIN_OWNER_PASSWORDS). */
+function loadOwnerPasswords(): string[] {
+  const fromEnv = loadPasswordList(process.env.AUTH_ADMIN_OWNER_PASSWORDS || "")
+  return fromEnv.length > 0 ? fromEnv : ["3110", "1004"]
 }
 
 function passwordMatchesAdmin(password: string | undefined, allowed: string[]): boolean {
@@ -135,7 +152,14 @@ export async function verifyCredentials(
   if (admin) {
     const allowed = loadAdminPasswords()
     if (!passwordMatchesAdmin(password, allowed)) return null
-    return admin
+    const isOwner = passwordMatchesAdmin(password, loadOwnerPasswords())
+    const needle = (password ?? "").trim().replace(/\s+/g, "")
+    return {
+      ...admin,
+      id: isOwner ? `admin-owner-${needle}` : `admin-operateur-${needle}`,
+      role: isOwner ? "admin" : "operateur",
+      accessLabel: formatAccessCode(needle),
+    }
   }
 
   const pwd = password ?? ""

@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import RapportTabs from "@/components/RapportTabs"
+import { useAccess } from "@/components/useAccess"
 
 type RapportRow = {
   id: string
@@ -44,6 +45,7 @@ function statutClass(s: string | null): string {
 
 export default function RapportsPage() {
   const router = useRouter()
+  const { canDelete, isFullAdmin } = useAccess()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [rapports, setRapports] = useState<RapportRow[]>([])
@@ -243,10 +245,13 @@ export default function RapportsPage() {
                     href={`/intervention/${r.id}`}
                     className="px-3 py-1.5 text-xs rounded-lg border border-slate-200 hover:bg-slate-50"
                   >Voir →</Link>
+                  {isFullAdmin && (
                   <button
                     onClick={() => modifierRapport(r.id)}
                     className="px-3 py-1.5 text-xs rounded-lg bg-[#0e2a52] text-white hover:bg-[#0a1f3d]"
                   >✏️ Modifier</button>
+                  )}
+                  {canDelete && (
                   <button
                     onClick={() => supprimerRapport(r)}
                     disabled={deletingId === r.id}
@@ -254,6 +259,7 @@ export default function RapportsPage() {
                     aria-label={`Supprimer ${r.reference || 'cette intervention'}`}
                     title="Supprimer (cascade : rapport, facture, devis, photos)"
                   >{deletingId === r.id ? '…' : '🗑'}</button>
+                  )}
                 </div>
               </div>
             </div>

@@ -5,6 +5,8 @@ import { dbNotConfiguredResponse, getPrismaOrNull } from "@/lib/db"
 import { getParametre } from "@/lib/parametres"
 import { TARIF_COMMISSION_RAPPORTEUR, getTarifActif } from "@/lib/tarif"
 import { FLUX_RAPPORTEUR, buildCommissionFacture } from "@/lib/rapporteur"
+import { canEditFacture } from "@/lib/permissions"
+import { findDocumentId } from "@/lib/db-helpers"
 
 export const dynamic = "force-dynamic"
 
@@ -76,6 +78,16 @@ export async function POST(_req: Request, { params }: Params) {
     0,
   )
   const totalTTC = totalHT * (1 + tvaTaux / 100)
+
+  if (user.role && !canEditFacture(user.role)) {
+    const existing = await findDocumentId("facture", facture.numero)
+    if (existing) {
+      return NextResponse.json(
+        { error: "Cette action est réservée à l’administrateur." },
+        { status: 403 },
+      )
+    }
+  }
 
   const factureId = await persistFacture({
     facture,

@@ -4,6 +4,7 @@ import Link from "next/link"
 import AppTabs from "@/components/AppTabs"
 import DevisTabs from "@/components/DevisTabs"
 import { fmtDateFR } from "@/lib/format"
+import { useAccess } from "@/components/useAccess"
 
 type DevisRow = {
   id: string
@@ -26,6 +27,7 @@ type DevisRow = {
 }
 
 export default function TousLesDevisPage() {
+  const { canDelete } = useAccess()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [devis, setDevis] = useState<DevisRow[]>([])
@@ -242,6 +244,7 @@ export default function TousLesDevisPage() {
                         )}
                       </td>
                       <td className="px-2 py-3 text-center">
+                        {canDelete ? (
                         <button
                           type="button"
                           onClick={() => handleSupprimer(d)}
@@ -250,6 +253,7 @@ export default function TousLesDevisPage() {
                           aria-label={`Supprimer devis ${d.numero || ''}`}
                           title="Supprimer (cascade : intervention, rapport, facture, photos)"
                         >{deletingId === d.id ? '…' : '×'}</button>
+                        ) : null}
                       </td>
                     </tr>
                   ))

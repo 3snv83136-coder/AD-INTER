@@ -8,6 +8,7 @@ import VilleCombobox from "@/components/VilleCombobox"
 import { fmtDateFR, fmtEUR } from "@/lib/format"
 import { CANAUX_ACQUISITION, canalIcon, canalLabel } from "@/lib/canaux"
 import { TYPES_INTERVENTION, isDevisIntervention } from "@/lib/types-intervention"
+import { useAccess } from "@/components/useAccess"
 
 const InterventionMap = dynamic(() => import('@/components/InterventionMap'), { ssr: false })
 const InterventionRapportDownloadButton = dynamic(
@@ -101,6 +102,7 @@ const STATUT_BADGE: Record<Statut, string> = {
 
 export default function InterventionDetailPage({ params }: { params: { id: string } }) {
   const router = useRouter()
+  const { canDelete, canEditIntervention, canEditClientContact, isFullAdmin } = useAccess()
   const [intervention, setIntervention] = useState<InterventionDetail | null>(null)
   const [client, setClient] = useState<ClientDetail | null>(null)
   const [technicien, setTechnicien] = useState<TechnicienDetail | null>(null)
@@ -189,8 +191,10 @@ export default function InterventionDetailPage({ params }: { params: { id: strin
         }
       }
 
-      const nbIntervention = Object.keys(payload).length
-      const nbClient = Object.keys(clientPatch).length
+      const nbIntervention = canEditIntervention ? Object.keys(payload).length : 0
+      const clientPatchFiltered = { ...clientPatch }
+      if (!isFullAdmin) delete clientPatchFiltered.nom
+      const nbClient = Object.keys(clientPatchFiltered).length
       if (nbIntervention === 0 && nbClient === 0) {
         setEditing(false); setSaving(false); return
       }
@@ -210,7 +214,7 @@ export default function InterventionDetailPage({ params }: { params: { id: strin
         const res = await fetch(`/api/clients/${client.id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(clientPatch),
+          body: JSON.stringify(clientPatchFiltered),
         })
         const data = await res.json()
         if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
@@ -481,17 +485,17 @@ export default function InterventionDetailPage({ params }: { params: { id: strin
                     : '📄 Aller au rapport'}
                 </button>
               )}
-              {!editing && (
+              {!editing && (canEditIntervention || canEditClientContact) && (
                 <button
                   onClick={startEdit}
                   disabled={actionInProgress}
                   className="bg-white border-2 border-blue-300 text-blue-700 hover:bg-blue-50 px-4 py-2.5 rounded-xl font-bold text-sm disabled:opacity-50 transition"
-                  title="Modifier les informations de l'intervention"
+                  title={canEditIntervention ? "Modifier les informations de l'intervention" : "Modifier téléphone, email ou adresse du client"}
                 >
-                  ✏ Modifier
+                  ✏ {canEditIntervention ? "Modifier" : "Modifier le client"}
                 </button>
               )}
-              {intervention.statut !== 'annulee' && intervention.statut !== 'terminee' && (
+              {canEditIntervention && intervention.statut !== 'annulee' && intervention.statut !== 'terminee' && (
                 <button
                   onClick={() => {
                     if (confirm('Annuler cette intervention ? (statut → annulée, conservée dans l\'historique)')) updateStatut('annulee')
@@ -502,6 +506,7 @@ export default function InterventionDetailPage({ params }: { params: { id: strin
                   ✕ Annuler
                 </button>
               )}
+              {canDelete && (
               <button
                 onClick={hardDelete}
                 disabled={actionInProgress}
@@ -510,6 +515,7 @@ export default function InterventionDetailPage({ params }: { params: { id: strin
               >
                 🗑 Supprimer
               </button>
+              )}
             </div>
           </div>
           {intervention.rapport_json && Object.keys(intervention.rapport_json || {}).length > 0 && (
@@ -598,7 +604,7 @@ export default function InterventionDetailPage({ params }: { params: { id: strin
         ) : null}
 
         {/* Date / heure / type */}
-        {editing ? (
+        {editing && canEditIntervention ? (
           <section className="bg-blue-50 rounded-2xl shadow-sm border border-blue-200 p-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
             <EditField label="Date prévue">
               <input type="date" value={form.date_prevue || ''} onChange={e => setForm(f => ({ ...f, date_prevue: e.target.value || null }))} className={editInputCls} />
@@ -679,7 +685,7 @@ export default function InterventionDetailPage({ params }: { params: { id: strin
           {editing && client ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-blue-50 rounded-xl p-3 border border-blue-200">
               <EditField label="Nom">
-                <input value={clientForm.nom || ''} onChange={e => setClientForm(f => ({ ...f, nom: e.target.value }))} className={editInputCls} />
+                <input value={clientForm.nom || ''} onChange={e => setClientForm(f => ({ ...f, nom: e.target.value }))} className={editInputCls} disabled={!isFullAdmin} />
               </EditField>
               <EditField label="Téléphone">
                 <input value={clientForm.telephone || ''} onChange={e => setClientForm(f => ({ ...f, telephone: e.target.value }))} className={editInputCls} inputMode="tel" placeholder="Compléter le téléphone…" />
@@ -731,7 +737,7 @@ export default function InterventionDetailPage({ params }: { params: { id: strin
               </a>
             )}
           </div>
-          {editing ? (
+          {editing && canEditIntervention ? (
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-blue-50 rounded-xl p-3 border border-blue-200">
               <EditField label="Adresse">
                 <input value={form.adresse_chantier || ''} onChange={e => setForm(f => ({ ...f, adresse_chantier: e.target.value || null }))} className={editInputCls} />
@@ -765,7 +771,7 @@ export default function InterventionDetailPage({ params }: { params: { id: strin
         {/* Technicien */}
         <section className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 space-y-3">
           <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500">Technicien assigné</h2>
-          {editing ? (
+          {editing && canEditIntervention ? (
             <>
               <select
                 value={form.technicien_id || ''}
@@ -796,7 +802,7 @@ export default function InterventionDetailPage({ params }: { params: { id: strin
         </section>
 
         {/* Notes */}
-        {editing ? (
+        {editing && canEditIntervention ? (
           <section className="bg-amber-50 rounded-2xl border border-amber-200 p-5 space-y-2">
             <h2 className="text-sm font-bold uppercase tracking-wider text-amber-800">Notes internes</h2>
             <textarea

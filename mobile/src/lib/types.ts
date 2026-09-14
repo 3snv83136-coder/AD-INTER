@@ -1,4 +1,4 @@
-export type AuthRole = 'admin' | 'tech'
+export type AuthRole = 'admin' | 'operateur' | 'tech'
 
 export type AuthUser = {
   login: string

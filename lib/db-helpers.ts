@@ -2,6 +2,21 @@ import { Prisma } from '@prisma/client'
 import { getPrismaOrNull } from '@/lib/db'
 import type { DocumentStatut, DocumentType } from '@/lib/types'
 
+export async function findDocumentId(
+  type: DocumentType,
+  numero: string | null | undefined,
+): Promise<string | null> {
+  const n = (numero || "").trim()
+  if (!n) return null
+  const prisma = getPrismaOrNull()
+  if (!prisma) return null
+  const row = await prisma.document.findFirst({
+    where: { type, numero: n },
+    select: { id: true },
+  })
+  return row?.id ?? null
+}
+
 function buildClientPatch(input: {
   nom?: string | null
   email?: string | null

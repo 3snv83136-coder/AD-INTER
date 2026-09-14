@@ -82,6 +82,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           name: account.login,
           role: account.role,
           technicienId: account.technicienId,
+          accessLabel: account.accessLabel ?? account.login,
         }
       },
     }),
@@ -93,13 +94,16 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (user) {
         token.role = user.role
         token.technicienId = user.technicienId ?? null
+        token.accessLabel = user.accessLabel
       }
       return token
     },
     async session({ session, token }) {
       if (session.user) {
+        session.user.id = token.sub ?? session.user.id ?? ""
         session.user.role = token.role
         session.user.technicienId = token.technicienId ?? null
+        session.user.accessLabel = token.accessLabel
       }
       return session
     },

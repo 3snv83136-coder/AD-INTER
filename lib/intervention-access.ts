@@ -4,7 +4,7 @@ import { getPrismaOrNull } from "@/lib/db"
 import { bearerFromHeader, verifyMobileToken } from "@/lib/mobile-auth"
 
 export type SessionUser = {
-  role?: "admin" | "tech"
+  role?: "admin" | "operateur" | "tech"
   technicienId?: string | null
   login?: string | null
 }

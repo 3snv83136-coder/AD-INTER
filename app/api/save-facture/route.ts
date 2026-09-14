@@ -1,18 +1,35 @@
 import { NextRequest, NextResponse } from "next/server"
-import { persistFacture } from "@/lib/persist"
+import { persistFacture, type PersistFactureInput } from "@/lib/persist"
+import { getSessionUser } from "@/lib/intervention-access"
+import { canEditFacture } from "@/lib/permissions"
+import { findDocumentId } from "@/lib/db-helpers"
 
-export const dynamic = 'force-dynamic'
+export const dynamic = "force-dynamic"
 
 export async function POST(req: NextRequest) {
-  let body: any
+  let body: PersistFactureInput
   try {
     body = await req.json()
   } catch {
-    return NextResponse.json({ error: 'JSON invalide' }, { status: 400 })
+    return NextResponse.json({ error: "JSON invalide" }, { status: 400 })
   }
 
-  if (!body?.facture || typeof body.facture !== 'object') {
-    return NextResponse.json({ error: 'Champ facture manquant' }, { status: 400 })
+  if (!body?.facture || typeof body.facture !== "object") {
+    return NextResponse.json({ error: "Champ facture manquant" }, { status: 400 })
+  }
+
+  const role = (await getSessionUser())?.role
+  if (role && !canEditFacture(role)) {
+    const numero = typeof body.numero === "string"
+      ? body.numero
+      : body.facture?.numero
+    const existing = await findDocumentId("facture", numero)
+    if (existing) {
+      return NextResponse.json(
+        { error: "Cette action est réservée à l’administrateur." },
+        { status: 403 },
+      )
+    }
   }
 
   try {
@@ -23,7 +40,10 @@ export async function POST(req: NextRequest) {
       }, { status: 500 })
     }
     return NextResponse.json({ ok: true, id })
-  } catch (e: any) {
-    return NextResponse.json({ error: e?.message || 'Erreur de sauvegarde' }, { status: 500 })
+  } catch (e) {
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : "Erreur de sauvegarde" },
+      { status: 500 },
+    )
   }
 }

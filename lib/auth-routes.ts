@@ -25,6 +25,7 @@ const TECH_API_PREFIXES = [
   "/api/communes",
   "/api/extract",
   "/api/siret",
+  "/api/presence",
 ] as const
 
 export function isTechPageAllowed(pathname: string): boolean {

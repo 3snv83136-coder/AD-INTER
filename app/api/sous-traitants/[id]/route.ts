@@ -5,6 +5,10 @@ import { composeSousTraitantNotes } from "@/lib/sous-traitant-notes"
 
 export const dynamic = "force-dynamic"
 
+type Params = { params: { id: string } }
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 async function requireAdmin(): Promise<NextResponse | null> {
   if (!process.env.AUTH_USER_1 && !process.env.AUTH_TECH_1) return null
   const user = await getSessionUser()
@@ -17,39 +21,17 @@ async function requireAdmin(): Promise<NextResponse | null> {
   return null
 }
 
-export async function GET() {
-  const denied = await requireAdmin()
-  if (denied) return denied
-  const prisma = getPrismaOrNull()
-  if (!prisma) {
-    const { error, status } = dbNotConfiguredResponse()
-    return NextResponse.json({ error, sous_traitants: [] }, { status })
-  }
-  try {
-    const rows = await prisma.sousTraitant.findMany({
-      where: { actif: true },
-      orderBy: { nom: "asc" },
-    })
-    return NextResponse.json({
-      sous_traitants: rows.map((s) => ({
-        ...s,
-        created_at: s.created_at.toISOString(),
-        updated_at: s.updated_at.toISOString(),
-      })),
-    })
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : "Erreur base de données"
-    return NextResponse.json({ error: msg, sous_traitants: [] }, { status: 500 })
-  }
-}
-
-export async function POST(req: NextRequest) {
+export async function PATCH(req: NextRequest, { params }: Params) {
   const denied = await requireAdmin()
   if (denied) return denied
   const prisma = getPrismaOrNull()
   if (!prisma) {
     const { error, status } = dbNotConfiguredResponse()
     return NextResponse.json({ error }, { status })
+  }
+
+  if (!UUID_RE.test(params.id)) {
+    return NextResponse.json({ error: "Identifiant invalide" }, { status: 400 })
   }
 
   let body: {
@@ -72,7 +54,13 @@ export async function POST(req: NextRequest) {
   if (!nom) return NextResponse.json({ error: "Nom du sous-traitant requis" }, { status: 400 })
 
   try {
-    const row = await prisma.sousTraitant.create({
+    const existing = await prisma.sousTraitant.findUnique({ where: { id: params.id } })
+    if (!existing) {
+      return NextResponse.json({ error: "Sous-traitant introuvable" }, { status: 404 })
+    }
+
+    const row = await prisma.sousTraitant.update({
+      where: { id: params.id },
       data: {
         nom,
         email: (body.email || "").trim() || null,

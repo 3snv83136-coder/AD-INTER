@@ -403,3 +403,16 @@ model SocialToken {
   @@index([platform])
   @@map("social_tokens")
 }
+
+model Presence {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  session_key String   @unique
+  login       String
+  role        String
+  label       String
+  path        String?
+  last_seen   DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([last_seen(sort: Desc)])
+  @@map("presences")
+}

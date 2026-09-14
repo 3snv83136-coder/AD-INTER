@@ -4,6 +4,7 @@ import { getSessionUser, assertInterventionAccess } from "@/lib/intervention-acc
 import { getPrismaOrNull, dbNotConfiguredResponse } from "@/lib/db"
 import { isCanalAcquisition } from "@/lib/canaux"
 import { cascadeDeleteIntervention } from "@/lib/cascadeDelete"
+import { canEditIntervention, requireFullAdmin } from "@/lib/permissions"
 
 export const dynamic = 'force-dynamic'
 
@@ -126,6 +127,9 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (!access.ok) {
     return NextResponse.json({ error: access.error }, { status: access.status })
   }
+  if (user?.role && !canEditIntervention(user.role) && user.role !== "tech") {
+    return NextResponse.json({ error: "Cette action est réservée à l’administrateur." }, { status: 403 })
+  }
 
   let body: Record<string, unknown>
   try {
@@ -194,6 +198,8 @@ export async function PUT(req: NextRequest, { params }: Params) {
 }
 
 export async function DELETE(req: NextRequest, { params }: Params) {
+  const denied = requireFullAdmin((await getSessionUser())?.role)
+  if (denied) return denied
   const prisma = getPrismaOrNull()
   if (!prisma) {
     const { error, status } = dbNotConfiguredResponse()

@@ -3,6 +3,7 @@ import { Inter } from "next/font/google"
 import "./globals.css"
 import { SessionProvider } from "next-auth/react"
 import { BrandBackdrop } from "@/components/BrandBackdrop"
+import { PresencePing } from "@/components/PresencePing"
 import { PwaScript } from "@/components/PwaScript"
 
 const inter = Inter({ subsets: ["latin"] })
@@ -41,6 +42,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <BrandBackdrop />
         <div className="relative z-10 min-h-dvh">
           <SessionProvider>
+            <PresencePing />
             {children}
           </SessionProvider>
         </div>
