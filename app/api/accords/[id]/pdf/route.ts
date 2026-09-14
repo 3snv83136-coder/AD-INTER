@@ -1,32 +1,33 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getSupabaseOrNull } from "@/lib/supabase"
+import { dbNotConfiguredResponse, getPrismaOrNull } from "@/lib/db"
+import { blobPaths, uploadBlob } from "@/lib/storage"
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
 
-const BUCKET = 'accords-pdfs'
-
 type Params = { params: { id: string } }
 
 /**
- * POST /api/accords/[id]/pdf — archive le PDF d'un accord sur Supabase Storage.
+ * POST /api/accords/[id]/pdf — archive le PDF d'un accord sur Vercel Blob.
  *
  * Le PDF est rendu côté client (@react-pdf/renderer) puis envoyé en
  * multipart/form-data — même approche que /api/interventions/[id]/store-pdf
  * (évite la limite ~4.5 MB du body JSON sur Vercel).
  */
 export async function POST(req: NextRequest, { params }: Params) {
-  const sb = getSupabaseOrNull()
-  if (!sb) return NextResponse.json({ error: 'Supabase non configuré' }, { status: 500 })
+  const prisma = getPrismaOrNull()
+  if (!prisma) {
+    const { error, status } = dbNotConfiguredResponse()
+    return NextResponse.json({ error }, { status })
+  }
 
   const accordId = params.id
   if (!accordId) return NextResponse.json({ error: 'ID accord manquant' }, { status: 400 })
 
-  const { data: accord } = await sb
-    .from('accords_intervention')
-    .select('id')
-    .eq('id', accordId)
-    .maybeSingle()
+  const accord = await prisma.accordIntervention.findUnique({
+    where: { id: accordId },
+    select: { id: true },
+  })
   if (!accord) return NextResponse.json({ error: 'Accord introuvable' }, { status: 404 })
 
   let formData: FormData
@@ -47,27 +48,32 @@ export async function POST(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'PDF trop lourd (max 12 MB)' }, { status: 413 })
   }
 
-  // Chemin horodaté : évite qu'un PDF régénéré soit masqué par le cache CDN.
-  const path = `${accordId}/${Date.now()}.pdf`
   const buf = Buffer.from(await file.arrayBuffer())
 
-  const upload = await sb.storage
-    .from(BUCKET)
-    .upload(path, buf, { contentType: 'application/pdf', upsert: true })
-  if (upload.error) {
-    return NextResponse.json({ error: `Upload échoué : ${upload.error.message}` }, { status: 502 })
+  let url: string
+  try {
+    url = await uploadBlob({
+      pathname: blobPaths.accord(accordId),
+      body: buf,
+      contentType: 'application/pdf',
+    })
+  } catch (e) {
+    return NextResponse.json(
+      { error: `Upload échoué : ${e instanceof Error ? e.message : 'erreur'}` },
+      { status: 502 },
+    )
   }
 
-  const { data: pub } = sb.storage.from(BUCKET).getPublicUrl(path)
-  const url = pub?.publicUrl
-  if (!url) return NextResponse.json({ error: 'URL publique introuvable' }, { status: 500 })
-
-  const { error } = await sb
-    .from('accords_intervention')
-    .update({ pdf_url: url })
-    .eq('id', accordId)
-  if (error) {
-    return NextResponse.json({ error: `DB update échouée : ${error.message}` }, { status: 500 })
+  try {
+    await prisma.accordIntervention.update({
+      where: { id: accordId },
+      data: { pdf_url: url },
+    })
+  } catch (e) {
+    return NextResponse.json(
+      { error: `DB update échouée : ${e instanceof Error ? e.message : 'erreur'}` },
+      { status: 500 },
+    )
   }
 
   return NextResponse.json({ ok: true, url })

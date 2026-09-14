@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getSupabaseOrNull } from "@/lib/supabase"
+import { getPrismaOrNull, dbNotConfiguredResponse } from "@/lib/db"
 import { createGmbPost } from "@/lib/gmb"
 
 export const dynamic = "force-dynamic"
@@ -7,10 +7,6 @@ export const maxDuration = 30
 
 const SITE = "https://allodebouchage.com"
 
-/**
- * POST /api/publish-gmb — publie une intervention en post Google Business Profile.
- * Body : { interventionId }
- */
 export async function POST(req: NextRequest) {
   let body: { interventionId?: string }
   try {
@@ -23,18 +19,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "interventionId requis" }, { status: 400 })
   }
 
-  const sb = getSupabaseOrNull()
-  if (!sb) return NextResponse.json({ error: "Supabase non configuré" }, { status: 500 })
+  const prisma = getPrismaOrNull()
+  if (!prisma) {
+    const { error, status } = dbNotConfiguredResponse()
+    return NextResponse.json({ error }, { status })
+  }
 
-  const { data: interv, error } = await sb
-    .from("interventions")
-    .select("type_intervention, ville, seo_json, photos_urls, publie_slug")
-    .eq("id", interventionId)
-    .maybeSingle()
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  const interv = await prisma.intervention.findUnique({
+    where: { id: interventionId },
+    select: { type_intervention: true, ville: true, seo_json: true, photos_urls: true, publie_slug: true },
+  })
   if (!interv) return NextResponse.json({ error: "Intervention introuvable" }, { status: 404 })
 
-  // Texte du post — résumé SEO de l'intervention, avec repli sur un gabarit.
   const seo = (interv.seo_json || {}) as {
     resume_rich_snippet?: string
     meta_description?: string
@@ -46,9 +42,6 @@ export async function POST(req: NextRequest) {
     seo.meta_description ||
     `${type} réalisée à ${ville} par Allo Débouchage.`
 
-  // Texte sobre et factuel : pas de numéro de téléphone, pas d'URL ni de ton
-  // promotionnel dans le corps — règlement « contenu » des posts Google Business
-  // (le lien part dans le bouton callToAction, pas dans le texte).
   const summary = [`${type} à ${ville}`, "", resume].join("\n")
 
   const photos: string[] = Array.isArray(interv.photos_urls) ? interv.photos_urls : []

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getSupabaseOrNull } from "@/lib/supabase"
+import { getPrismaOrNull, dbNotConfiguredResponse } from "@/lib/db"
 import { buildFactureFromRapport } from "@/lib/rapportToFacture"
 import { persistFacture } from "@/lib/persist"
 
@@ -8,25 +8,11 @@ export const maxDuration = 30
 
 type Params = { params: { id: string } }
 
-/**
- * Crée une facture pré-remplie à partir du rapport de l'intervention.
- *
- * Body JSON (tout optionnel — surcharge le résultat de buildFactureFromRapport) :
- *   {
- *     pu_ht?: number          // si défini, force le prix unitaire de la 1ère ligne
- *     mode_reglement?: string // ex: "Carte bancaire", "Espèces"
- *     echeance?: string       // "Réglée", "À réception", "30 jours fin de mois"
- *     tva_taux?: number       // 10 ou 20
- *     observations?: string   // surcharge
- *   }
- *
- * Réponse : { ok: true, factureId: string, payload: <facture complète prête à l'envoi> }
- *           Bump terrain_step à 5 (étape devis optionnel).
- */
 export async function POST(req: NextRequest, { params }: Params) {
-  const sb = getSupabaseOrNull()
-  if (!sb) {
-    return NextResponse.json({ error: 'Supabase non configuré' }, { status: 500 })
+  const prisma = getPrismaOrNull()
+  if (!prisma) {
+    const { error, status } = dbNotConfiguredResponse()
+    return NextResponse.json({ error }, { status })
   }
 
   const interventionId = params.id
@@ -50,27 +36,26 @@ export async function POST(req: NextRequest, { params }: Params) {
     tva_taux?: number
     observations?: string
     recommandation?: string
-    /** Si fourni, remplace entièrement les lignes générées depuis le rapport */
     lignes?: LigneInput[]
-    /** Surcharge l'objet de la facture */
     objet?: string
   } = {}
   try {
     body = await req.json()
   } catch {
-    // Body optionnel — on continue avec les valeurs par défaut
+    // Body optionnel
   }
 
-  // Charge intervention + client + technicien
-  const { data: interv, error: intErr } = await sb
-    .from('interventions')
-    .select('id, reference, client_id, technicien_id, agence, type_intervention, adresse_chantier, ville, code_postal, date_realisee, date_prevue, rapport_json, terrain_step')
-    .eq('id', interventionId)
-    .maybeSingle()
-  if (intErr) return NextResponse.json({ error: intErr.message }, { status: 500 })
+  const interv = await prisma.intervention.findUnique({
+    where: { id: interventionId },
+    select: {
+      id: true, reference: true, client_id: true, technicien_id: true, agence: true,
+      type_intervention: true, adresse_chantier: true, ville: true, code_postal: true,
+      date_realisee: true, date_prevue: true, rapport_json: true, terrain_step: true,
+    },
+  })
   if (!interv) return NextResponse.json({ error: 'Intervention introuvable' }, { status: 404 })
 
-  if (!interv.rapport_json || Object.keys(interv.rapport_json).length === 0) {
+  if (!interv.rapport_json || Object.keys(interv.rapport_json as object).length === 0) {
     return NextResponse.json({
       error: 'Aucun rapport pour cette intervention. Dicte le rapport d\'abord.',
     }, { status: 400 })
@@ -78,16 +63,20 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   let client: { nom: string | null; email: string | null; adresse: string | null; code_postal: string | null; ville: string | null } | null = null
   if (interv.client_id) {
-    const { data: c } = await sb
-      .from('clients')
-      .select('nom, email, adresse, code_postal, ville')
-      .eq('id', interv.client_id)
-      .maybeSingle()
-    client = c || null
+    client = await prisma.client.findUnique({
+      where: { id: interv.client_id },
+      select: { nom: true, email: true, adresse: true, code_postal: true, ville: true },
+    })
   }
 
+  const dateIntervention = interv.date_realisee
+    ? interv.date_realisee.toISOString().slice(0, 10)
+    : interv.date_prevue
+      ? interv.date_prevue.toISOString().slice(0, 10)
+      : null
+
   const prefill = buildFactureFromRapport({
-    rapport: interv.rapport_json,
+    rapport: interv.rapport_json as unknown as import("@/components/RealisationPDF").RapportData,
     client_nom: client?.nom || null,
     client_email: client?.email || null,
     client_adresse: client?.adresse || null,
@@ -95,15 +84,12 @@ export async function POST(req: NextRequest, { params }: Params) {
     client_ville: client?.ville || null,
     adresse_chantier: interv.adresse_chantier || null,
     type_intervention: interv.type_intervention || null,
-    date_intervention: interv.date_realisee || interv.date_prevue || null,
+    date_intervention: dateIntervention,
     reference: interv.reference || null,
   })
 
-  // Surcharges
   const facture = prefill.facture
 
-  // Si l'UI envoie un payload de lignes complet → on remplace.
-  // Sinon on garde les lignes générées depuis le rapport.
   if (Array.isArray(body.lignes) && body.lignes.length > 0) {
     facture.lignes = body.lignes
       .map(l => ({
@@ -116,7 +102,6 @@ export async function POST(req: NextRequest, { params }: Params) {
       }))
       .filter(l => l.designation.length > 0)
   } else if (typeof body.pu_ht === 'number' && Number.isFinite(body.pu_ht) && facture.lignes[0]) {
-    // Rétrocompat : ancien comportement avec un pu_ht unique
     facture.lignes[0] = { ...facture.lignes[0], pu_ht: body.pu_ht }
   }
 
@@ -127,11 +112,9 @@ export async function POST(req: NextRequest, { params }: Params) {
   if (typeof body.recommandation === 'string') facture.recommandation = body.recommandation
   if (typeof body.objet === 'string' && body.objet.trim()) facture.objet = body.objet.trim()
 
-  // Calcul totaux
   const totalHT = facture.lignes.reduce((sum: number, l) => sum + (l.inclus ? 0 : (Number(l.qte) || 0) * (Number(l.pu_ht) || 0)), 0)
   const totalTTC = totalHT * (1 + (facture.tva_taux ?? 10) / 100)
 
-  // Persist
   const factureId = await persistFacture({
     facture,
     clientNom: prefill.client_nom,
@@ -153,13 +136,12 @@ export async function POST(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'Sauvegarde facture impossible' }, { status: 500 })
   }
 
-  // Bump terrain_step à 5 (devis optionnel) si pas déjà plus loin
   const currentStep = interv.terrain_step ?? 0
   if (currentStep < 5) {
-    await sb
-      .from('interventions')
-      .update({ terrain_step: 5 })
-      .eq('id', interventionId)
+    await prisma.intervention.update({
+      where: { id: interventionId },
+      data: { terrain_step: 5 },
+    })
   }
 
   return NextResponse.json({

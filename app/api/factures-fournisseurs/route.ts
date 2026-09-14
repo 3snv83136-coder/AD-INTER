@@ -1,5 +1,6 @@
-import { NextRequest, NextResponse } from "next/server"
-import { getSupabaseOrNull, type FactureFournisseur } from "@/lib/supabase"
+import { NextRequest, NextResponse } from 'next/server'
+import { dbNotConfiguredResponse, getPrismaOrNull } from '@/lib/db'
+import type { FactureFournisseur } from '@/lib/types'
 
 export const dynamic = 'force-dynamic'
 
@@ -23,13 +24,32 @@ function isCategorieValide(v: unknown): v is Categorie {
   return typeof v === 'string' && (CATEGORIES_VALIDES as readonly string[]).includes(v)
 }
 
+function isoDate(d: Date): string {
+  return d.toISOString().slice(0, 10)
+}
+
+function serializeFacture(row: FactureFournisseur) {
+  return {
+    id: row.id,
+    fournisseur: row.fournisseur,
+    numero: row.numero,
+    date_facture: isoDate(row.date_facture),
+    montant_ht: Number(row.montant_ht),
+    tva: Number(row.tva),
+    montant_ttc: Number(row.montant_ttc),
+    categorie: row.categorie,
+    description: row.description,
+    pdf_url: row.pdf_url,
+    agence: row.agence,
+    created_at: row.created_at.toISOString(),
+  }
+}
+
 export async function GET(req: NextRequest) {
-  const sb = getSupabaseOrNull()
-  if (!sb) {
-    return NextResponse.json({
-      error: 'Supabase non configuré (SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY manquants)',
-      factures: [],
-    }, { status: 500 })
+  const prisma = getPrismaOrNull()
+  if (!prisma) {
+    const err = dbNotConfiguredResponse()
+    return NextResponse.json({ error: err.error, factures: [] }, { status: err.status })
   }
 
   const url = new URL(req.url)
@@ -38,30 +58,30 @@ export async function GET(req: NextRequest) {
   const categorie = url.searchParams.get('categorie')
   const agence = url.searchParams.get('agence')
 
-  let q = sb
-    .from('factures_fournisseurs')
-    .select('id, fournisseur, numero, date_facture, montant_ht, tva, montant_ttc, categorie, description, pdf_url, agence, created_at')
-    .order('date_facture', { ascending: false })
+  const data = await prisma.factureFournisseur.findMany({
+    where: {
+      ...(from || to
+        ? {
+            date_facture: {
+              ...(from ? { gte: new Date(from) } : {}),
+              ...(to ? { lte: new Date(to) } : {}),
+            },
+          }
+        : {}),
+      ...(categorie ? { categorie } : {}),
+      ...(agence ? { agence } : {}),
+    },
+    orderBy: { date_facture: 'desc' },
+  })
 
-  if (from) q = q.gte('date_facture', from)
-  if (to) q = q.lte('date_facture', to)
-  if (categorie) q = q.eq('categorie', categorie)
-  if (agence) q = q.eq('agence', agence)
-
-  const { data, error } = await q
-  if (error) {
-    return NextResponse.json({ error: error.message, factures: [] }, { status: 500 })
-  }
-
-  return NextResponse.json({ factures: (data || []) as FactureFournisseur[] })
+  return NextResponse.json({ factures: data.map(serializeFacture) })
 }
 
 export async function POST(req: NextRequest) {
-  const sb = getSupabaseOrNull()
-  if (!sb) {
-    return NextResponse.json({
-      error: 'Supabase non configuré (SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY manquants)',
-    }, { status: 500 })
+  const prisma = getPrismaOrNull()
+  if (!prisma) {
+    const err = dbNotConfiguredResponse()
+    return NextResponse.json({ error: err.error }, { status: err.status })
   }
 
   let body: Record<string, unknown> = {}
@@ -87,28 +107,20 @@ export async function POST(req: NextRequest) {
 
   const categorie = isCategorieValide(body.categorie) ? body.categorie : null
 
-  const insertPayload = {
-    fournisseur,
-    numero: typeof body.numero === 'string' && body.numero.trim() ? body.numero.trim() : null,
-    date_facture,
-    montant_ht,
-    tva,
-    montant_ttc,
-    categorie,
-    description: typeof body.description === 'string' && body.description.trim() ? body.description.trim() : null,
-    pdf_url: typeof body.pdf_url === 'string' && body.pdf_url.trim() ? body.pdf_url.trim() : null,
-    agence: typeof body.agence === 'string' && body.agence.trim() ? body.agence.trim() : null,
-  }
+  const data = await prisma.factureFournisseur.create({
+    data: {
+      fournisseur,
+      numero: typeof body.numero === 'string' && body.numero.trim() ? body.numero.trim() : null,
+      date_facture: new Date(date_facture),
+      montant_ht,
+      tva,
+      montant_ttc,
+      categorie,
+      description: typeof body.description === 'string' && body.description.trim() ? body.description.trim() : null,
+      pdf_url: typeof body.pdf_url === 'string' && body.pdf_url.trim() ? body.pdf_url.trim() : null,
+      agence: typeof body.agence === 'string' && body.agence.trim() ? body.agence.trim() : null,
+    },
+  })
 
-  const { data, error } = await sb
-    .from('factures_fournisseurs')
-    .insert(insertPayload)
-    .select('id, fournisseur, numero, date_facture, montant_ht, tva, montant_ttc, categorie, description, pdf_url, agence, created_at')
-    .single()
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
-
-  return NextResponse.json({ facture: data as FactureFournisseur })
+  return NextResponse.json({ facture: serializeFacture(data) })
 }

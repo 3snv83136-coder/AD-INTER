@@ -1,19 +1,18 @@
 import crypto from "crypto"
 import { createElement, type ReactElement } from "react"
 import { renderToBuffer } from "@react-pdf/renderer"
-import { RealisationDocument } from "@/components/RealisationPDF"
+import type { PrismaClient } from "@prisma/client"
+import { RealisationDocument, type RapportData } from "@/components/RealisationPDF"
 import { FactureDocument } from "@/components/FacturePDF"
 import { alloFactureEmetteur } from "@/lib/emetteur"
 import { proxyImageUrlAbsolute } from "@/lib/proxyImageUrl"
-import type { SupabaseClient } from "@supabase/supabase-js"
-
-const PDFS_BUCKET = process.env.SUPABASE_PDFS_BUCKET || "intervention-pdfs"
+import { uploadBlob, blobPaths } from "@/lib/storage"
 
 export type GenerateTerrainPdfsInput = {
   interventionId: string
   baseUrl: string
   clientNom: string
-  sb: SupabaseClient
+  prisma: PrismaClient
 }
 
 export type GenerateTerrainPdfsResult = {
@@ -24,7 +23,7 @@ export type GenerateTerrainPdfsResult = {
 }
 
 async function uploadPdf(
-  sb: SupabaseClient,
+  prisma: PrismaClient,
   interventionId: string,
   kind: "rapport" | "facture",
   buf: Buffer,
@@ -37,92 +36,110 @@ async function uploadPdf(
     throw new Error(`PDF ${kind} trop lourd (max 12 Mo)`)
   }
 
-  const folder = interventionId.replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 80)
   const nonce = crypto.randomBytes(3).toString("hex")
-  const path = `${folder}/${kind}-${Date.now()}-${nonce}.pdf`
+  const filename = `${kind}-${Date.now()}-${nonce}.pdf`
 
-  const { error: upErr } = await sb.storage
-    .from(PDFS_BUCKET)
-    .upload(path, buf, { contentType: "application/pdf", upsert: true })
-
-  if (upErr) throw new Error(`Upload ${kind} : ${upErr.message}`)
-
-  const { data: pub } = sb.storage.from(PDFS_BUCKET).getPublicUrl(path)
-  const url = pub?.publicUrl
-  if (!url) throw new Error(`URL publique ${kind} introuvable`)
+  const url = await uploadBlob({
+    pathname: blobPaths.pdf(interventionId, filename),
+    body: buf,
+    contentType: "application/pdf",
+  })
 
   if (kind === "rapport") {
-    const { error } = await sb.from("interventions").update({ pdf_rapport_url: url }).eq("id", interventionId)
-    if (error) throw new Error(error.message)
+    await prisma.intervention.update({
+      where: { id: interventionId },
+      data: { pdf_rapport_url: url },
+    })
   } else {
     if (!factureId) throw new Error("Facture introuvable")
-    const { error } = await sb.from("documents").update({ pdf_url: url }).eq("id", factureId)
-    if (error) throw new Error(error.message)
+    await prisma.document.update({
+      where: { id: factureId },
+      data: { pdf_url: url },
+    })
   }
 
   return url
 }
 
 export async function generateTerrainPdfsOnServer(input: GenerateTerrainPdfsInput): Promise<GenerateTerrainPdfsResult> {
-  const { interventionId, baseUrl, clientNom, sb } = input
+  const { interventionId, baseUrl, clientNom, prisma } = input
 
-  const { data: interv, error: intErr } = await sb
-    .from("interventions")
-    .select("id, reference, type_intervention, adresse_chantier, ville, code_postal, date_realisee, date_prevue, agence, rapport_json, photos_urls, photos_legendes, pdf_rapport_url, technicien_id, client_id")
-    .eq("id", interventionId)
-    .single()
+  const interv = await prisma.intervention.findUnique({
+    where: { id: interventionId },
+    select: {
+      id: true,
+      reference: true,
+      type_intervention: true,
+      adresse_chantier: true,
+      ville: true,
+      code_postal: true,
+      date_realisee: true,
+      date_prevue: true,
+      agence: true,
+      rapport_json: true,
+      photos_urls: true,
+      photos_legendes: true,
+      pdf_rapport_url: true,
+      technicien_id: true,
+      client_id: true,
+    },
+  })
 
-  if (intErr || !interv) throw new Error("Intervention introuvable")
+  if (!interv) throw new Error("Intervention introuvable")
   if (!interv.rapport_json || Object.keys(interv.rapport_json as object).length === 0) {
     throw new Error("Rapport non sauvegardé")
   }
 
   let technicienNom = "Technicien"
   if (interv.technicien_id) {
-    const { data: t } = await sb.from("techniciens").select("nom").eq("id", interv.technicien_id).maybeSingle()
-    if (t?.nom) technicienNom = t.nom as string
+    const t = await prisma.technicien.findUnique({
+      where: { id: interv.technicien_id },
+      select: { nom: true },
+    })
+    if (t?.nom) technicienNom = t.nom
   }
 
-  let clientRow: { adresse?: string; code_postal?: string; ville?: string } | null = null
+  let clientRow: { adresse?: string | null; code_postal?: string | null; ville?: string | null } | null = null
   if (interv.client_id) {
-    const { data: cl } = await sb.from("clients").select("adresse, code_postal, ville").eq("id", interv.client_id).maybeSingle()
-    clientRow = cl
+    clientRow = await prisma.client.findUnique({
+      where: { id: interv.client_id },
+      select: { adresse: true, code_postal: true, ville: true },
+    })
   }
 
-  const { data: factures } = await sb
-    .from("documents")
-    .select("id, payload, pdf_url")
-    .eq("intervention_id", interventionId)
-    .eq("type", "facture")
-    .order("created_at", { ascending: false })
-    .range(0, 0)
+  const facture = await prisma.document.findFirst({
+    where: { intervention_id: interventionId, type: "facture" },
+    orderBy: { created_at: "desc" },
+    select: { id: true, payload: true, pdf_url: true },
+  })
 
-  const facture = factures?.[0]
   if (!facture?.payload) throw new Error("Facture introuvable")
 
-  const photos = ((interv.photos_urls as string[]) || []).map((url, i) => ({
+  const photos = (interv.photos_urls || []).map((url, i) => ({
     url: proxyImageUrlAbsolute(url, baseUrl),
-    legende: ((interv.photos_legendes as string[]) || [])[i] || `Photo ${i + 1}`,
+    legende: (interv.photos_legendes || [])[i] || `Photo ${i + 1}`,
   }))
+
+  const dateStr = (d: Date | null | undefined) => (d ? d.toISOString().slice(0, 10) : "")
 
   const rapportBuf = await renderToBuffer(
     createElement(RealisationDocument, {
       clientNom,
-      adresse: (interv.adresse_chantier as string) || "",
-      ville: (interv.ville as string) || "",
-      codePostal: (interv.code_postal as string) || "",
-      dateIntervention: (interv.date_realisee as string) || (interv.date_prevue as string) || "",
-      typeIntervention: (interv.type_intervention as string) || "",
+      adresse: interv.adresse_chantier || "",
+      ville: interv.ville || "",
+      codePostal: interv.code_postal || "",
+      dateIntervention: dateStr(interv.date_realisee) || dateStr(interv.date_prevue),
+      typeIntervention: interv.type_intervention || "",
       technicienNom,
-      rapport: interv.rapport_json,
-      reference: (interv.reference as string) || undefined,
+      rapport: interv.rapport_json as unknown as RapportData,
+      reference: interv.reference || undefined,
       photos,
     }) as ReactElement,
   )
 
-  const adresseLine1 = clientRow?.adresse || (interv.adresse_chantier as string) || ""
-  const adresseCP = clientRow?.code_postal || (interv.code_postal as string) || ""
-  const adresseVille = clientRow?.ville || (interv.ville as string) || ""
+  const adresseLine1 = clientRow?.adresse || interv.adresse_chantier || ""
+  const adresseCP = clientRow?.code_postal || interv.code_postal || ""
+  const adresseVille = clientRow?.ville || interv.ville || ""
   const clientAdresseLignes: string[] = []
   if (adresseLine1) clientAdresseLignes.push(adresseLine1)
   if (adresseCP || adresseVille) {
@@ -131,17 +148,17 @@ export async function generateTerrainPdfsOnServer(input: GenerateTerrainPdfsInpu
 
   const factureBuf = await renderToBuffer(
     createElement(FactureDocument, {
-      emetteur: alloFactureEmetteur((interv.agence as string) || undefined),
+      emetteur: alloFactureEmetteur(interv.agence || undefined),
       client: {
         nom: clientNom,
         adresseLignes: clientAdresseLignes.length > 0 ? clientAdresseLignes : ["—"],
       },
-      facture: facture.payload,
+      facture: facture.payload as unknown as React.ComponentProps<typeof FactureDocument>['facture'],
     }) as ReactElement,
   )
 
-  const rapport_url = await uploadPdf(sb, interventionId, "rapport", Buffer.from(rapportBuf))
-  const facture_url = await uploadPdf(sb, interventionId, "facture", Buffer.from(factureBuf), facture.id as string)
+  const rapport_url = await uploadPdf(prisma, interventionId, "rapport", Buffer.from(rapportBuf))
+  const facture_url = await uploadPdf(prisma, interventionId, "facture", Buffer.from(factureBuf), facture.id)
 
   return {
     rapport_url,
@@ -151,27 +168,24 @@ export async function generateTerrainPdfsOnServer(input: GenerateTerrainPdfsInpu
   }
 }
 
-export async function terrainPdfsReady(sb: SupabaseClient, interventionId: string): Promise<{
+export async function terrainPdfsReady(prisma: PrismaClient, interventionId: string): Promise<{
   ready: boolean
   rapport_url: string | null
   facture_url: string | null
 }> {
-  const { data: interv } = await sb
-    .from("interventions")
-    .select("pdf_rapport_url")
-    .eq("id", interventionId)
-    .maybeSingle()
+  const interv = await prisma.intervention.findUnique({
+    where: { id: interventionId },
+    select: { pdf_rapport_url: true },
+  })
 
-  const { data: factures } = await sb
-    .from("documents")
-    .select("pdf_url")
-    .eq("intervention_id", interventionId)
-    .eq("type", "facture")
-    .order("created_at", { ascending: false })
-    .range(0, 0)
+  const facture = await prisma.document.findFirst({
+    where: { intervention_id: interventionId, type: "facture" },
+    orderBy: { created_at: "desc" },
+    select: { pdf_url: true },
+  })
 
-  const rapport_url = (interv?.pdf_rapport_url as string) || null
-  const facture_url = (factures?.[0]?.pdf_url as string) || null
+  const rapport_url = interv?.pdf_rapport_url || null
+  const facture_url = facture?.pdf_url || null
 
   return {
     ready: !!(rapport_url && facture_url),

@@ -6,7 +6,7 @@ export type AuthAccount = {
   id: string
   login: string
   role: AuthRole
-  /** Hash bcrypt — null = connexion sans mot de passe (admins) */
+  /** Hash bcrypt — null pour les admins bootstrap (MDP via AUTH_ADMIN_PASSWORDS) */
   passwordHash: string | null
   /** UUID technicien Supabase (comptes tech) */
   technicienId: string | null
@@ -18,7 +18,7 @@ function normalizeBcryptHash(raw: string): string {
   return hash
 }
 
-/** AUTH_USER_N=login ou login:hash (hash ignoré → admin sans MDP) */
+/** AUTH_USER_N=login  |  AUTH_ADMIN_PASSWORDS=liste de MDP (virgules) */
 function loadAdmins(): AuthAccount[] {
   const accounts: AuthAccount[] = []
   for (let i = 1; i <= 10; i++) {
@@ -35,6 +35,20 @@ function loadAdmins(): AuthAccount[] {
     })
   }
   return accounts
+}
+
+function loadAdminPasswords(): string[] {
+  const raw = process.env.AUTH_ADMIN_PASSWORDS || ""
+  return raw
+    .split(/[,;]+/)
+    .map((s) => s.trim().replace(/\s+/g, ""))
+    .filter(Boolean)
+}
+
+function passwordMatchesAdmin(password: string | undefined, allowed: string[]): boolean {
+  const needle = (password ?? "").trim().replace(/\s+/g, "")
+  if (!needle) return false
+  return allowed.some((p) => p === needle)
 }
 
 export type TechEnvEntry = {
@@ -115,10 +129,12 @@ export async function verifyCredentials(
   const login = username.trim()
   if (!login) return null
 
-  // 1. Admin bootstrap par variable d'env (accès de secours, toujours dispo)
+  // 1. Admin bootstrap par variable d'env
   const admins = loadAdmins()
   const admin = admins.find(a => a.login.toLowerCase() === login.toLowerCase())
   if (admin) {
+    const allowed = loadAdminPasswords()
+    if (!passwordMatchesAdmin(password, allowed)) return null
     return admin
   }
 

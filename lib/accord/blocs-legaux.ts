@@ -5,7 +5,7 @@
  *
  * ⚠ Modèles à faire valider par un juriste / l'assureur RC pro avant prod.
  */
-import type { AccordIntervention } from "@/lib/supabase"
+import type { AccordIntervention } from "@/lib/types"
 
 type AdresseSource = Pick<
   AccordIntervention,

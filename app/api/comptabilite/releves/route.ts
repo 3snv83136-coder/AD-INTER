@@ -1,27 +1,45 @@
-import { NextRequest, NextResponse } from "next/server"
-import { getSupabaseOrNull } from "@/lib/supabase"
+import { NextRequest, NextResponse } from 'next/server'
+import { dbNotConfiguredResponse, getPrismaOrNull } from '@/lib/db'
 
-export const dynamic = "force-dynamic"
+export const dynamic = 'force-dynamic'
 
 export async function GET(req: NextRequest) {
-  const sb = getSupabaseOrNull()
-  if (!sb) return NextResponse.json({ error: "Supabase non configuré", releves: [] }, { status: 500 })
+  const prisma = getPrismaOrNull()
+  if (!prisma) {
+    const err = dbNotConfiguredResponse()
+    return NextResponse.json({ error: err.error, releves: [] }, { status: err.status })
+  }
 
   const url = new URL(req.url)
-  const annee = url.searchParams.get("annee")
-  const mois = url.searchParams.get("mois")
+  const annee = url.searchParams.get('annee')
+  const mois = url.searchParams.get('mois')
 
-  let q = sb
-    .from("releves_bancaires")
-    .select("id, compte_id, periode_annee, periode_mois, pdf_url, fichier_nom, nb_operations, solde_fin_mois, notes, uploaded_at")
-    .order("periode_annee", { ascending: false })
-    .order("periode_mois", { ascending: false })
+  const data = await prisma.releveBancaire.findMany({
+    where: {
+      ...(annee ? { periode_annee: Number(annee) } : {}),
+      ...(mois ? { periode_mois: Number(mois) } : {}),
+    },
+    select: {
+      id: true,
+      compte_id: true,
+      periode_annee: true,
+      periode_mois: true,
+      pdf_url: true,
+      fichier_nom: true,
+      nb_operations: true,
+      solde_fin_mois: true,
+      notes: true,
+      uploaded_at: true,
+    },
+    orderBy: [{ periode_annee: 'desc' }, { periode_mois: 'desc' }],
+    take: 36,
+  })
 
-  if (annee) q = q.eq("periode_annee", Number(annee))
-  if (mois) q = q.eq("periode_mois", Number(mois))
+  const releves = data.map(r => ({
+    ...r,
+    solde_fin_mois: r.solde_fin_mois != null ? Number(r.solde_fin_mois) : null,
+    uploaded_at: r.uploaded_at.toISOString(),
+  }))
 
-  const { data, error } = await q.limit(36)
-  if (error) return NextResponse.json({ error: error.message, releves: [] }, { status: 500 })
-
-  return NextResponse.json({ releves: data || [] })
+  return NextResponse.json({ releves })
 }

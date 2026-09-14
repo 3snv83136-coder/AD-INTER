@@ -1,13 +1,16 @@
-import { NextRequest, NextResponse } from "next/server"
-import { getSupabaseOrNull } from "@/lib/supabase"
+import { NextRequest, NextResponse } from 'next/server'
+import { dbNotConfiguredResponse, getPrismaOrNull } from '@/lib/db'
 
-export const dynamic = "force-dynamic"
+export const dynamic = 'force-dynamic'
 
 type Params = { params: { id: string } }
 
 export async function PATCH(req: NextRequest, { params }: Params) {
-  const sb = getSupabaseOrNull()
-  if (!sb) return NextResponse.json({ error: "Supabase non configuré" }, { status: 500 })
+  const prisma = getPrismaOrNull()
+  if (!prisma) {
+    const err = dbNotConfiguredResponse()
+    return NextResponse.json({ error: err.error }, { status: err.status })
+  }
 
   let body: { valide_par?: string }
   try {
@@ -16,20 +19,22 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     body = {}
   }
 
-  const now = new Date().toISOString()
-  const { data, error } = await sb
-    .from("pre_bilans")
-    .update({
-      statut: "valide",
+  const now = new Date()
+  const data = await prisma.preBilan.update({
+    where: { id: params.id },
+    data: {
+      statut: 'valide',
       valide_at: now,
-      valide_par: body.valide_par || "Comptable",
-      updated_at: now,
-    })
-    .eq("id", params.id)
-    .select("id, statut, valide_at, valide_par")
-    .single()
+      valide_par: body.valide_par || 'Comptable',
+    },
+    select: { id: true, statut: true, valide_at: true, valide_par: true },
+  })
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-
-  return NextResponse.json({ ok: true, pre_bilan: data })
+  return NextResponse.json({
+    ok: true,
+    pre_bilan: {
+      ...data,
+      valide_at: data.valide_at?.toISOString() ?? null,
+    },
+  })
 }

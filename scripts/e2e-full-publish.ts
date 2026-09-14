@@ -6,9 +6,9 @@
  *                 E2E_INTERNAL_SECRET="$(grep NEXTAUTH_SECRET .env.vercel | cut -d= -f2)" \
  *                 npx tsx scripts/e2e-full-publish.ts
  */
-import { createClient } from "@supabase/supabase-js"
 import fs from "node:fs"
 import path from "node:path"
+import { getScriptPrisma, disconnectScriptPrisma } from './_prisma'
 
 function loadEnvFile(name: string) {
   const p = path.resolve(process.cwd(), name)
@@ -42,10 +42,6 @@ const SEED_PHOTOS = [
   "https://allodebouchage.com/media/gallery/before/IMG_7002.jpeg",
   "https://allodebouchage.com/media/gallery/after/IMG_7001.jpeg",
 ]
-
-const sb = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {
-  auth: { persistSession: false },
-})
 
 let pass = 0
 let fail = 0
@@ -160,14 +156,19 @@ async function main() {
     }
   }
 
-  step("2 — Photos réelles (seed Supabase)")
+  step("2 — Photos réelles (seed DB)")
   {
-    const { error } = await sb
-      .from("interventions")
-      .update({ photos_urls: SEED_PHOTOS })
-      .eq("id", interventionId)
-    if (error) ko("Photos seed", error.message)
-    else ok("photos_urls", `${SEED_PHOTOS.length} images Allo Débouchage`)
+    const prisma = getScriptPrisma()
+    try {
+      await prisma.intervention.update({
+        where: { id: interventionId },
+        data: { photos_urls: SEED_PHOTOS },
+      })
+      ok("photos_urls", `${SEED_PHOTOS.length} images Allo Débouchage`)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      ko("Photos seed", msg)
+    }
   }
 
   step("3 — Terrain : démarrer + fin chrono")
@@ -328,17 +329,21 @@ async function main() {
 
   step("9 — Vérification finale DB")
   {
-    const { data: iv } = await sb
-      .from("interventions")
-      .select("statut, terrain_step, publie_slug, video_urls, video_status, video_error, rapport_json, photos_urls")
-      .eq("id", interventionId)
-      .single()
+    const prisma = getScriptPrisma()
+    const iv = await prisma.intervention.findUnique({
+      where: { id: interventionId },
+      select: {
+        statut: true, terrain_step: true, publie_slug: true, video_urls: true,
+        video_status: true, video_error: true, rapport_json: true, photos_urls: true,
+      },
+    })
     if (iv) {
-      iv.rapport_json && Object.keys(iv.rapport_json).length > 0 ? ok("rapport_json") : ko("rapport_json", "vide")
+      iv.rapport_json && Object.keys(iv.rapport_json as object).length > 0 ? ok("rapport_json") : ko("rapport_json", "vide")
       ;(iv.photos_urls?.length ?? 0) >= 2 ? ok(`photos (${iv.photos_urls.length})`) : ko("photos", "0")
       iv.publie_slug ? ok("publie_slug", iv.publie_slug) : ko("publie_slug", "null")
       if (RUN_VIDEO) {
-        iv.video_urls?.horizontal ? ok("video horizontal") : ko("video", iv.video_error || iv.video_status || "absente")
+        const vu = iv.video_urls as { horizontal?: string } | null
+        vu?.horizontal ? ok("video horizontal") : ko("video", iv.video_error || iv.video_status || "absente")
       }
     }
   }
@@ -355,4 +360,4 @@ async function main() {
 main().catch(e => {
   console.error("\n💥", e)
   process.exit(1)
-})
+}).finally(() => disconnectScriptPrisma())

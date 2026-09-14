@@ -1,11 +1,8 @@
 import Link from "next/link"
 import { redirect } from "next/navigation"
-import {
-  getSupabaseOrNull,
-  type AccordIntervention,
-  type AccordStatut,
-  type LigneDevis,
-} from "@/lib/supabase"
+import { getPrismaOrNull } from "@/lib/db"
+import type { AccordIntervention, AccordStatut, LigneDevis } from "@/lib/types"
+import { serializeAccordIntervention, serializeLigneDevis } from "@/lib/types"
 import { auth } from "@/lib/auth"
 import { assertInterventionAccess } from "@/lib/intervention-access"
 import { isAccordFinDeMois } from "@/lib/fin-de-mois"
@@ -40,27 +37,28 @@ const STATUT_BADGE: Record<AccordStatut, string> = {
 async function loadAccord(
   id: string,
 ): Promise<{ accord: AccordIntervention; lignes: LigneDevis[] } | null> {
-  const sb = getSupabaseOrNull()
-  if (!sb) return null
+  const prisma = getPrismaOrNull()
+  if (!prisma) return null
 
-  const { data: aData, error } = await sb
-    .from('accords_intervention')
-    .select('*')
-    .eq('id', id)
-    .maybeSingle()
-  if (error || !aData) {
-    if (error) console.error('[accord/[id]] loadAccord', error)
+  try {
+    const accord = await prisma.accordIntervention.findUnique({
+      where: { id },
+    })
+    if (!accord) return null
+
+    const lignes = await prisma.ligneDevis.findMany({
+      where: { accord_id: id },
+      orderBy: { position: 'asc' },
+    })
+
+    return {
+      accord: serializeAccordIntervention(accord),
+      lignes: lignes.map(serializeLigneDevis),
+    }
+  } catch (e) {
+    console.error('[accord/[id]] loadAccord', e)
     return null
   }
-  const accord = aData as AccordIntervention
-
-  const { data: lData } = await sb
-    .from('lignes_devis')
-    .select('*')
-    .eq('accord_id', id)
-    .order('position', { ascending: true })
-
-  return { accord, lignes: (lData as LigneDevis[]) || [] }
 }
 
 function ShellHeader({ children }: { children: React.ReactNode }) {
@@ -95,6 +93,8 @@ export default async function AccordDetailPage({ params }: { params: { id: strin
   }
 
   const { accord, lignes } = result
+  const statut = accord.statut as AccordStatut
+
   const session = await auth()
   const isTech = session?.user?.role === 'tech'
   if (isTech && !isAccordFinDeMois()) {
@@ -137,8 +137,8 @@ export default async function AccordDetailPage({ params }: { params: { id: strin
         {/* Statut & rattachement */}
         <section className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-3">
-            <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${STATUT_BADGE[accord.statut]}`}>
-              {STATUT_LABEL[accord.statut]}
+            <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${STATUT_BADGE[statut]}`}>
+              {STATUT_LABEL[statut]}
             </span>
             <span className="text-xs text-slate-500">Créé le {fmtDateFR(accord.created_at)}</span>
           </div>
@@ -151,7 +151,7 @@ export default async function AccordDetailPage({ params }: { params: { id: strin
                 Voir l&apos;intervention liée →
               </Link>
             )}
-            {accord.statut === 'BROUILLON' && <AnnulerAccordButton accordId={accord.id} />}
+            {statut === 'BROUILLON' && <AnnulerAccordButton accordId={accord.id} />}
           </div>
         </section>
 
@@ -159,7 +159,7 @@ export default async function AccordDetailPage({ params }: { params: { id: strin
         <ApercuAccord accord={accord} lignes={lignes} emetteur={emetteur} telephone={telephone} />
 
         {/* Actions selon le statut */}
-        {accord.statut === 'BROUILLON' && (
+        {statut === 'BROUILLON' && (
           <>
             <ValiderAccordLazy
               accord={accord}
@@ -183,7 +183,7 @@ export default async function AccordDetailPage({ params }: { params: { id: strin
           </>
         )}
 
-        {accord.statut === 'VALIDE' && (
+        {statut === 'VALIDE' && (
           <section className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 space-y-3">
             <h3 className="text-sm font-bold uppercase tracking-wider text-slate-500">Document signé</h3>
             <p className="text-xs text-slate-500">
@@ -210,7 +210,7 @@ export default async function AccordDetailPage({ params }: { params: { id: strin
           </section>
         )}
 
-        {accord.statut === 'REFUSE' && (
+        {statut === 'REFUSE' && (
           <section className="bg-white rounded-2xl shadow-sm border border-red-200 p-5 space-y-1">
             <h3 className="text-sm font-bold uppercase tracking-wider text-red-600">
               Accord refusé par le client
@@ -221,7 +221,7 @@ export default async function AccordDetailPage({ params }: { params: { id: strin
           </section>
         )}
 
-        {accord.statut === 'ANNULE' && (
+        {statut === 'ANNULE' && (
           <section className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
             <p className="text-sm text-slate-500">Accord annulé.</p>
           </section>

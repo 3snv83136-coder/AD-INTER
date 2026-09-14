@@ -1,6 +1,6 @@
 import { google } from "googleapis"
 import { OAuth2Client } from "google-auth-library"
-import { getSupabase } from "./supabase"
+import { getPrisma } from "./db"
 import { getParametre } from "./parametres"
 
 /**
@@ -62,32 +62,35 @@ export async function exchangeCodeAndStore(code: string): Promise<{ email?: stri
     }
   }
 
-  const sb = getSupabase()
-  const { error } = await sb.from("social_tokens").upsert(
-    {
+  const prisma = getPrisma()
+  await prisma.socialToken.upsert({
+    where: { platform: PLATFORM },
+    create: {
       platform: PLATFORM,
       account_email: email || null,
       refresh_token: tokens.refresh_token,
       access_token: tokens.access_token || null,
-      expires_at: tokens.expiry_date ? new Date(tokens.expiry_date).toISOString() : null,
+      expires_at: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
       scope: tokens.scope || SCOPES.join(" "),
-      updated_at: new Date().toISOString(),
     },
-    { onConflict: "platform" },
-  )
-  if (error) throw new Error(`DB upsert social_tokens: ${error.message}`)
+    update: {
+      account_email: email || null,
+      refresh_token: tokens.refresh_token,
+      access_token: tokens.access_token || null,
+      expires_at: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
+      scope: tokens.scope || SCOPES.join(" "),
+    },
+  })
   return { email }
 }
 
 /** Client OAuth prêt à l'emploi (refresh_token chargé depuis social_tokens). */
 export async function getAuthenticatedClient(): Promise<OAuth2Client> {
-  const sb = getSupabase()
-  const { data, error } = await sb
-    .from("social_tokens")
-    .select("refresh_token")
-    .eq("platform", PLATFORM)
-    .maybeSingle()
-  if (error) throw new Error(`DB lecture social_tokens: ${error.message}`)
+  const prisma = getPrisma()
+  const data = await prisma.socialToken.findUnique({
+    where: { platform: PLATFORM },
+    select: { refresh_token: true },
+  })
   if (!data?.refresh_token) {
     throw new Error("Aucun compte Google Business connecté — connecte-le via /api/oauth/gmb")
   }

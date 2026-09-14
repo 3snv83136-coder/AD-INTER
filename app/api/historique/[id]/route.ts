@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getSupabaseOrNull, type DocumentStatut } from "@/lib/supabase"
+import { dbNotConfiguredResponse, getPrismaOrNull } from "@/lib/db"
+import type { DocumentStatut } from "@/lib/types"
 import { cascadeDeleteDocument } from "@/lib/cascadeDelete"
 import { annulerRelancesFacture } from "@/lib/facture-relance"
 
@@ -13,49 +14,80 @@ export async function GET(
   _req: NextRequest,
   ctx: { params: { id: string } },
 ) {
-  const sb = getSupabaseOrNull()
-  if (!sb) {
-    return NextResponse.json({ error: 'Supabase non configuré' }, { status: 500 })
+  const prisma = getPrismaOrNull()
+  if (!prisma) {
+    const { error, status } = dbNotConfiguredResponse()
+    return NextResponse.json({ error }, { status })
   }
   const id = ctx.params.id
   if (!id) return NextResponse.json({ error: 'id manquant' }, { status: 400 })
 
-  const { data, error } = await sb
-    .from('documents')
-    .select('id, type, numero, agence, date_emission, echeance, statut, montant_ht, montant_ttc, tva_taux, payload, pdf_url, envoye_email, envoye_at, intervention_id, client_id, created_at')
-    .eq('id', id)
-    .maybeSingle()
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  if (!data) return NextResponse.json({ error: 'Document introuvable' }, { status: 404 })
+  try {
+    const data = await prisma.document.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        type: true,
+        numero: true,
+        agence: true,
+        date_emission: true,
+        echeance: true,
+        statut: true,
+        montant_ht: true,
+        montant_ttc: true,
+        tva_taux: true,
+        payload: true,
+        pdf_url: true,
+        envoye_email: true,
+        envoye_at: true,
+        intervention_id: true,
+        client_id: true,
+        created_at: true,
+      },
+    })
+    if (!data) return NextResponse.json({ error: 'Document introuvable' }, { status: 404 })
 
-  // Décoration client : indispensable pour que ResendEmailButton / DocumentDownloadButton
-  // puissent regénérer un PDF avec nom + adresse. Sans ça, les PDFs sortent vides.
-  let client_nom: string | null = null
-  let client_email: string | null = null
-  let client_adresse: string | null = null
-  let client_code_postal: string | null = null
-  let client_ville: string | null = null
-  if (data.client_id) {
-    const { data: c } = await sb
-      .from('clients')
-      .select('nom, email, adresse, code_postal, ville')
-      .eq('id', data.client_id)
-      .maybeSingle()
-    if (c) {
-      client_nom = c.nom || null
-      client_email = c.email || null
-      client_adresse = c.adresse || null
-      client_code_postal = c.code_postal || null
-      client_ville = c.ville || null
+    let client_nom: string | null = null
+    let client_email: string | null = null
+    let client_adresse: string | null = null
+    let client_code_postal: string | null = null
+    let client_ville: string | null = null
+    if (data.client_id) {
+      const c = await prisma.client.findUnique({
+        where: { id: data.client_id },
+        select: { nom: true, email: true, adresse: true, code_postal: true, ville: true },
+      })
+      if (c) {
+        client_nom = c.nom || null
+        client_email = c.email || null
+        client_adresse = c.adresse || null
+        client_code_postal = c.code_postal || null
+        client_ville = c.ville || null
+      }
     }
-  }
 
-  return NextResponse.json({
-    document: {
-      ...data,
-      client_nom, client_email, client_adresse, client_code_postal, client_ville,
-    },
-  })
+    return NextResponse.json({
+      document: {
+        ...data,
+        date_emission: data.date_emission.toISOString().slice(0, 10),
+        montant_ht: data.montant_ht != null ? Number(data.montant_ht) : null,
+        montant_ttc: data.montant_ttc != null ? Number(data.montant_ttc) : null,
+        tva_taux: data.tva_taux != null ? Number(data.tva_taux) : null,
+        envoye_at: data.envoye_at?.toISOString() ?? null,
+        created_at: data.created_at.toISOString(),
+        client_nom,
+        client_email,
+        client_adresse,
+        client_code_postal,
+        client_ville,
+      },
+    })
+  } catch (e) {
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : 'Erreur de chargement' },
+      { status: 500 },
+    )
+  }
 }
 
 export async function DELETE(
@@ -65,9 +97,6 @@ export async function DELETE(
   const id = ctx.params.id
   if (!id) return NextResponse.json({ error: 'id manquant' }, { status: 400 })
 
-  // Cascade : si le document est lié à une intervention, on efface l'intervention
-  // complète (rapport + autres docs + photos + PDFs). Sinon, on efface juste le
-  // document orphelin (rare : devis sans intervention par ex).
   const result = await cascadeDeleteDocument(id)
 
   if (result.kind === 'intervention') {
@@ -105,11 +134,10 @@ export async function PATCH(
   req: NextRequest,
   ctx: { params: { id: string } },
 ) {
-  const sb = getSupabaseOrNull()
-  if (!sb) {
-    return NextResponse.json({
-      error: 'Supabase non configuré (SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY manquants)',
-    }, { status: 500 })
+  const prisma = getPrismaOrNull()
+  if (!prisma) {
+    const { error, status } = dbNotConfiguredResponse()
+    return NextResponse.json({ error }, { status })
   }
 
   const id = ctx.params.id
@@ -117,22 +145,30 @@ export async function PATCH(
     return NextResponse.json({ error: 'id manquant' }, { status: 400 })
   }
 
-  let body: any
+  let body: Record<string, unknown>
   try {
     body = await req.json()
   } catch {
     return NextResponse.json({ error: 'JSON invalide' }, { status: 400 })
   }
 
-  const update: Record<string, any> = {}
+  const update: {
+    statut?: string
+    envoye_at?: Date | null
+    envoye_email?: string | null
+  } = {}
   if (typeof body.statut === 'string') {
     if (!ALLOWED_STATUTS.includes(body.statut as DocumentStatut)) {
       return NextResponse.json({ error: `Statut invalide. Attendus : ${ALLOWED_STATUTS.join(', ')}` }, { status: 400 })
     }
     update.statut = body.statut
   }
-  if ('envoye_at' in body) update.envoye_at = body.envoye_at || null
-  if ('envoye_email' in body) update.envoye_email = body.envoye_email || null
+  if ('envoye_at' in body) {
+    update.envoye_at = body.envoye_at ? new Date(String(body.envoye_at)) : null
+  }
+  if ('envoye_email' in body) {
+    update.envoye_email = body.envoye_email ? String(body.envoye_email) : null
+  }
 
   if (Object.keys(update).length === 0) {
     return NextResponse.json({ error: 'Aucun champ à mettre à jour' }, { status: 400 })
@@ -146,15 +182,23 @@ export async function PATCH(
     }
   }
 
-  const { data, error } = await sb
-    .from('documents')
-    .update(update)
-    .eq('id', id)
-    .select('id, statut, envoye_at, envoye_email')
-    .single()
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+  try {
+    const data = await prisma.document.update({
+      where: { id },
+      data: update,
+      select: { id: true, statut: true, envoye_at: true, envoye_email: true },
+    })
+    return NextResponse.json({
+      ok: true,
+      document: {
+        ...data,
+        envoye_at: data.envoye_at?.toISOString() ?? null,
+      },
+    })
+  } catch (e) {
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : 'Mise à jour échouée' },
+      { status: 500 },
+    )
   }
-  return NextResponse.json({ ok: true, document: data })
 }

@@ -1,5 +1,6 @@
 import { auth } from "@/lib/auth"
 import { homePathForRole, isTechApiAllowed, isTechPageAllowed } from "@/lib/auth-routes"
+import { bearerFromHeader, verifyMobileToken } from "@/lib/mobile-auth"
 import { NextResponse } from "next/server"
 
 const INTERVENTION_FICHE = /^\/intervention\/([^/]+)$/
@@ -17,9 +18,9 @@ const PUBLIC_PREFIXES = [
   "/api/cron/",
 ]
 
-export default auth((req) => {
+export default auth(async (req) => {
   const { pathname } = req.nextUrl
-  const role = req.auth?.user?.role
+  let role = req.auth?.user?.role
 
   if (!process.env.AUTH_USER_1 && !process.env.AUTH_TECH_1) {
     return NextResponse.next()
@@ -32,6 +33,20 @@ export default auth((req) => {
   const internal = req.headers.get("x-internal-auth")
   if (process.env.NEXTAUTH_SECRET && internal === process.env.NEXTAUTH_SECRET) {
     return NextResponse.next()
+  }
+
+  if (!req.auth) {
+    const mobileToken = bearerFromHeader(req.headers.get("authorization"))
+    if (mobileToken) {
+      const payload = await verifyMobileToken(mobileToken)
+      if (payload) {
+        role = payload.role
+        if (role === "tech" && pathname.startsWith("/api/") && !isTechApiAllowed(pathname)) {
+          return NextResponse.json({ error: "Accès refusé" }, { status: 403 })
+        }
+        return NextResponse.next()
+      }
+    }
   }
 
   if (!req.auth) {

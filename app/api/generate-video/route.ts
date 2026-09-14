@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server"
 import fs from "node:fs/promises"
-import { getSupabase } from "@/lib/supabase"
+import { Prisma } from "@prisma/client"
+import { getPrisma } from "@/lib/db"
 import type { VideoFormat } from "@/lib/video-render-prod"
 import { uploadVideoToStorage } from "@/lib/video-storage"
 
 export const dynamic = "force-dynamic"
-export const maxDuration = 300 // 5 min — Vercel Pro plan needed beyond 60s
+export const maxDuration = 300
 
 const ALL_FORMATS: VideoFormat[] = ["vertical", "horizontal", "square"]
 
@@ -14,8 +15,9 @@ type Body = {
   formats?: VideoFormat[]
 }
 
+type VideoUrls = Partial<Record<VideoFormat, string>>
+
 export async function POST(req: NextRequest) {
-  // Avant chargement de @remotion/renderer (via video-render-prod)
   process.env.AWS_LAMBDA_JS_RUNTIME ??= "nodejs22.x"
 
   let body: Body
@@ -37,15 +39,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Aucun format valide" }, { status: 400 })
   }
 
-  const sb = getSupabase()
+  const prisma = getPrisma()
 
-  const { data: intervention, error: fetchErr } = await sb
-    .from("interventions")
-    .select("id, ville, type_intervention, photos_urls, rapport_json, date_realisee, video_urls")
-    .eq("id", interventionId)
-    .maybeSingle()
+  const intervention = await prisma.intervention.findUnique({
+    where: { id: interventionId },
+    select: { id: true, ville: true, type_intervention: true, photos_urls: true, rapport_json: true, date_realisee: true, video_urls: true },
+  })
 
-  if (fetchErr) return NextResponse.json({ error: fetchErr.message }, { status: 500 })
   if (!intervention) return NextResponse.json({ error: "Intervention introuvable" }, { status: 404 })
 
   const photoUrls: string[] = Array.isArray(intervention.photos_urls) ? intervention.photos_urls : []
@@ -55,12 +55,13 @@ export async function POST(req: NextRequest) {
 
   const photos = photoUrls.slice(0, 8).map((url) => ({ url }))
 
-  await sb
-    .from("interventions")
-    .update({ video_status: "rendering", video_error: null })
-    .eq("id", interventionId)
+  await prisma.intervention.update({
+    where: { id: interventionId },
+    data: { video_status: "rendering", video_error: null },
+  })
 
-  const result: Partial<Record<VideoFormat, string>> = { ...(intervention.video_urls || {}) }
+  const existingUrls = (intervention.video_urls as VideoUrls | null) || {}
+  const result: VideoUrls = { ...existingUrls }
 
   try {
     const { renderVideo } = await import("@/lib/video-render-prod")
@@ -70,7 +71,9 @@ export async function POST(req: NextRequest) {
         photos,
         ville: intervention.ville || undefined,
         typeIntervention: intervention.type_intervention || undefined,
-        dateRealisee: intervention.date_realisee || undefined,
+        dateRealisee: intervention.date_realisee
+          ? intervention.date_realisee.toISOString().slice(0, 10)
+          : undefined,
       })
       const stamp = Date.now()
       const storagePath = `${interventionId}/${stamp}-${format}.mp4`
@@ -79,23 +82,23 @@ export async function POST(req: NextRequest) {
       await fs.unlink(filePath).catch(() => {})
     }
 
-    await sb
-      .from("interventions")
-      .update({
-        video_urls: result,
+    await prisma.intervention.update({
+      where: { id: interventionId },
+      data: {
+        video_urls: result as Prisma.InputJsonValue,
         video_status: "ready",
-        video_rendered_at: new Date().toISOString(),
+        video_rendered_at: new Date(),
         video_error: null,
-      })
-      .eq("id", interventionId)
+      },
+    })
 
     return NextResponse.json({ ok: true, video_urls: result }, { status: 200 })
-  } catch (e: any) {
-    const message = e?.message || String(e)
-    await sb
-      .from("interventions")
-      .update({ video_status: "failed", video_error: message })
-      .eq("id", interventionId)
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : String(e)
+    await prisma.intervention.update({
+      where: { id: interventionId },
+      data: { video_status: "failed", video_error: message },
+    })
     return NextResponse.json({ error: message }, { status: 500 })
   }
 }

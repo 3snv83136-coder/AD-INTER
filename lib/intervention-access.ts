@@ -1,21 +1,35 @@
+import { headers } from "next/headers"
 import { auth } from "@/lib/auth"
-import { getSupabaseOrNull } from "@/lib/supabase"
+import { getPrismaOrNull } from "@/lib/db"
+import { bearerFromHeader, verifyMobileToken } from "@/lib/mobile-auth"
 
 export type SessionUser = {
   role?: "admin" | "tech"
   technicienId?: string | null
+  login?: string | null
 }
 
 export async function getSessionUser(): Promise<SessionUser | null> {
   const session = await auth()
-  if (!session?.user) return null
+  if (session?.user) {
+    return {
+      role: session.user.role,
+      technicienId: session.user.technicienId ?? null,
+      login: session.user.name ?? null,
+    }
+  }
+
+  const token = bearerFromHeader(headers().get("authorization"))
+  if (!token) return null
+  const payload = await verifyMobileToken(token)
+  if (!payload) return null
   return {
-    role: session.user.role,
-    technicienId: session.user.technicienId ?? null,
+    role: payload.role,
+    technicienId: payload.technicienId ?? null,
+    login: payload.login,
   }
 }
 
-/** Filtre technicien pour les listes (null = pas de filtre admin). */
 export function technicienFilterForSession(user: SessionUser | null): string | null {
   if (user?.role === "tech" && user.technicienId) return user.technicienId
   return null
@@ -28,18 +42,21 @@ export async function assertInterventionAccess(
   if (!user) return { ok: false, status: 401, error: "Non authentifié" }
   if (user.role !== "tech" || !user.technicienId) return { ok: true }
 
-  const sb = getSupabaseOrNull()
-  if (!sb) return { ok: false, status: 500, error: "Supabase non configuré" }
+  const prisma = getPrismaOrNull()
+  if (!prisma) return { ok: false, status: 503, error: "Base de données non configurée" }
 
-  const { data, error } = await sb
-    .from("interventions")
-    .select("technicien_id")
-    .eq("id", interventionId)
-    .maybeSingle()
-  if (error) return { ok: false, status: 500, error: error.message }
-  if (!data) return { ok: false, status: 404, error: "Intervention introuvable" }
-  if (data.technicien_id !== user.technicienId) {
-    return { ok: false, status: 403, error: "Accès refusé à cette intervention" }
+  try {
+    const data = await prisma.intervention.findUnique({
+      where: { id: interventionId },
+      select: { technicien_id: true },
+    })
+    if (!data) return { ok: false, status: 404, error: "Intervention introuvable" }
+    if (data.technicien_id !== user.technicienId) {
+      return { ok: false, status: 403, error: "Accès refusé à cette intervention" }
+    }
+    return { ok: true }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Erreur base de données"
+    return { ok: false, status: 500, error: msg }
   }
-  return { ok: true }
 }

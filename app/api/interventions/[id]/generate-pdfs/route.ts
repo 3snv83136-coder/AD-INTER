@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { generateTerrainPdfsOnServer, terrainPdfsReady } from "@/lib/terrain-pdf-server"
-import { getSupabaseOrNull, patchClient, upsertClient } from "@/lib/supabase"
+import { getPrismaOrNull, dbNotConfiguredResponse } from "@/lib/db"
+import { patchClient, upsertClient } from "@/lib/db-helpers"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 120
@@ -16,16 +17,22 @@ function getBaseUrl(req: NextRequest): string {
 }
 
 export async function GET(_req: NextRequest, { params }: Params) {
-  const sb = getSupabaseOrNull()
-  if (!sb) return NextResponse.json({ error: "Supabase non configuré" }, { status: 500 })
+  const prisma = getPrismaOrNull()
+  if (!prisma) {
+    const { error, status } = dbNotConfiguredResponse()
+    return NextResponse.json({ error }, { status })
+  }
 
-  const status = await terrainPdfsReady(sb, params.id)
+  const status = await terrainPdfsReady(prisma, params.id)
   return NextResponse.json(status)
 }
 
 export async function POST(req: NextRequest, { params }: Params) {
-  const sb = getSupabaseOrNull()
-  if (!sb) return NextResponse.json({ error: "Supabase non configuré" }, { status: 500 })
+  const prisma = getPrismaOrNull()
+  if (!prisma) {
+    const { error, status } = dbNotConfiguredResponse()
+    return NextResponse.json({ error }, { status })
+  }
 
   const interventionId = params.id
   if (!interventionId) return NextResponse.json({ error: "ID intervention manquant" }, { status: 400 })
@@ -41,7 +48,7 @@ export async function POST(req: NextRequest, { params }: Params) {
   if (!nom) return NextResponse.json({ error: "Nom client requis" }, { status: 400 })
 
   if (!body.force) {
-    const existing = await terrainPdfsReady(sb, interventionId)
+    const existing = await terrainPdfsReady(prisma, interventionId)
     if (existing.ready) {
       return NextResponse.json({ ok: true, skipped: true, ...existing })
     }
@@ -49,15 +56,14 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   const email = (body.email || "").trim()
   const telephone = (body.telephone || "").trim()
-  const { data: interv } = await sb
-    .from("interventions")
-    .select("id, client_id, ville, code_postal")
-    .eq("id", interventionId)
-    .maybeSingle()
+  const interv = await prisma.intervention.findUnique({
+    where: { id: interventionId },
+    select: { id: true, client_id: true, ville: true, code_postal: true },
+  })
 
   if (interv) {
     if (interv.client_id) {
-      await patchClient(interv.client_id as string, {
+      await patchClient(interv.client_id, {
         nom,
         email: email || null,
         ...(telephone ? { telephone } : {}),
@@ -67,11 +73,14 @@ export async function POST(req: NextRequest, { params }: Params) {
         nom,
         email: email || null,
         telephone: telephone || null,
-        ville: (interv.ville as string) || null,
-        code_postal: (interv.code_postal as string) || null,
+        ville: interv.ville || null,
+        code_postal: interv.code_postal || null,
       })
       if (clientId) {
-        await sb.from("interventions").update({ client_id: clientId }).eq("id", interventionId)
+        await prisma.intervention.update({
+          where: { id: interventionId },
+          data: { client_id: clientId },
+        })
       }
     }
   }
@@ -81,7 +90,7 @@ export async function POST(req: NextRequest, { params }: Params) {
       interventionId,
       baseUrl: getBaseUrl(req),
       clientNom: nom,
-      sb,
+      prisma,
     })
     return NextResponse.json({ ok: true, ...result })
   } catch (e) {

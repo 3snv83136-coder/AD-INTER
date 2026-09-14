@@ -1,5 +1,6 @@
-import { NextRequest, NextResponse } from "next/server"
-import { getSupabaseOrNull, type FactureFournisseur } from "@/lib/supabase"
+import { NextRequest, NextResponse } from 'next/server'
+import { dbNotConfiguredResponse, getPrismaOrNull } from '@/lib/db'
+import type { FactureFournisseur } from '@/lib/types'
 
 export const dynamic = 'force-dynamic'
 
@@ -23,15 +24,35 @@ function isCategorieValide(v: unknown): v is Categorie {
   return typeof v === 'string' && (CATEGORIES_VALIDES as readonly string[]).includes(v)
 }
 
+function isoDate(d: Date): string {
+  return d.toISOString().slice(0, 10)
+}
+
+function serializeFacture(row: FactureFournisseur) {
+  return {
+    id: row.id,
+    fournisseur: row.fournisseur,
+    numero: row.numero,
+    date_facture: isoDate(row.date_facture),
+    montant_ht: Number(row.montant_ht),
+    tva: Number(row.tva),
+    montant_ttc: Number(row.montant_ttc),
+    categorie: row.categorie,
+    description: row.description,
+    pdf_url: row.pdf_url,
+    agence: row.agence,
+    created_at: row.created_at.toISOString(),
+  }
+}
+
 export async function PUT(
   req: NextRequest,
   ctx: { params: { id: string } },
 ) {
-  const sb = getSupabaseOrNull()
-  if (!sb) {
-    return NextResponse.json({
-      error: 'Supabase non configuré (SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY manquants)',
-    }, { status: 500 })
+  const prisma = getPrismaOrNull()
+  if (!prisma) {
+    const err = dbNotConfiguredResponse()
+    return NextResponse.json({ error: err.error }, { status: err.status })
   }
 
   const id = ctx.params.id
@@ -46,7 +67,19 @@ export async function PUT(
     return NextResponse.json({ error: 'JSON invalide' }, { status: 400 })
   }
 
-  const update: Record<string, unknown> = {}
+  const update: {
+    fournisseur?: string
+    numero?: string | null
+    date_facture?: Date
+    montant_ht?: number
+    tva?: number
+    montant_ttc?: number
+    categorie?: string | null
+    description?: string | null
+    pdf_url?: string | null
+    agence?: string | null
+  } = {}
+
   if (typeof body.fournisseur === 'string') {
     const v = body.fournisseur.trim()
     if (!v) return NextResponse.json({ error: 'fournisseur requis' }, { status: 400 })
@@ -57,7 +90,7 @@ export async function PUT(
     if (!/^\d{4}-\d{2}-\d{2}$/.test(body.date_facture)) {
       return NextResponse.json({ error: 'date_facture invalide (YYYY-MM-DD)' }, { status: 400 })
     }
-    update.date_facture = body.date_facture
+    update.date_facture = new Date(body.date_facture)
   }
   if (body.montant_ht !== undefined) update.montant_ht = toNum(body.montant_ht, 0)
   if (body.tva !== undefined) update.tva = toNum(body.tva, 0)
@@ -69,28 +102,22 @@ export async function PUT(
   if (typeof body.pdf_url === 'string') update.pdf_url = body.pdf_url.trim() || null
   if (typeof body.agence === 'string') update.agence = body.agence.trim() || null
 
-  const { data, error } = await sb
-    .from('factures_fournisseurs')
-    .update(update)
-    .eq('id', id)
-    .select('id, fournisseur, numero, date_facture, montant_ht, tva, montant_ttc, categorie, description, pdf_url, agence, created_at')
-    .single()
+  const data = await prisma.factureFournisseur.update({
+    where: { id },
+    data: update,
+  })
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
-  return NextResponse.json({ facture: data as FactureFournisseur })
+  return NextResponse.json({ facture: serializeFacture(data) })
 }
 
 export async function DELETE(
   _req: NextRequest,
   ctx: { params: { id: string } },
 ) {
-  const sb = getSupabaseOrNull()
-  if (!sb) {
-    return NextResponse.json({
-      error: 'Supabase non configuré (SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY manquants)',
-    }, { status: 500 })
+  const prisma = getPrismaOrNull()
+  if (!prisma) {
+    const err = dbNotConfiguredResponse()
+    return NextResponse.json({ error: err.error }, { status: err.status })
   }
 
   const id = ctx.params.id
@@ -98,13 +125,7 @@ export async function DELETE(
     return NextResponse.json({ error: 'id manquant' }, { status: 400 })
   }
 
-  const { error } = await sb
-    .from('factures_fournisseurs')
-    .delete()
-    .eq('id', id)
+  await prisma.factureFournisseur.delete({ where: { id } })
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
   return NextResponse.json({ ok: true })
 }

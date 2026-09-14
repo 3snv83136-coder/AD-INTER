@@ -2,7 +2,7 @@
  * Plateformes sociales — OAuth + publication vidéo.
  * Pattern unifié pour Facebook, Instagram, TikTok (YouTube déjà couvert par lib/youtube.ts).
  */
-import { getSupabase } from "./supabase"
+import { getPrisma } from "./db"
 import { getTelPrincipal } from "./parametres"
 
 // ============================================================================
@@ -29,15 +29,18 @@ export type PublishResult = {
 // ============================================================================
 
 async function getToken(platform: string): Promise<StoredToken> {
-  const sb = getSupabase()
-  const { data, error } = await sb
-    .from("social_tokens")
-    .select("platform, refresh_token, access_token, expires_at")
-    .eq("platform", platform)
-    .maybeSingle()
-  if (error) throw new Error(`DB social_tokens (${platform}): ${error.message}`)
+  const prisma = getPrisma()
+  const data = await prisma.socialToken.findUnique({
+    where: { platform },
+    select: { platform: true, refresh_token: true, access_token: true, expires_at: true },
+  })
   if (!data?.refresh_token) throw new Error(`Aucun token ${platform} — connecte le compte via /api/oauth/${platform}`)
-  return data as StoredToken
+  return {
+    platform: data.platform,
+    refresh_token: data.refresh_token,
+    access_token: data.access_token,
+    expires_at: data.expires_at?.toISOString() ?? null,
+  }
 }
 
 async function storeToken(platform: string, tokens: {
@@ -47,20 +50,25 @@ async function storeToken(platform: string, tokens: {
   scope?: string
   account_email?: string
 }) {
-  const sb = getSupabase()
-  const { error } = await sb.from("social_tokens").upsert(
-    {
+  const prisma = getPrisma()
+  await prisma.socialToken.upsert({
+    where: { platform },
+    create: {
       platform,
+      account_email: tokens.account_email || null,
+      refresh_token: tokens.refresh_token || '',
+      access_token: tokens.access_token || null,
+      expires_at: tokens.expires_at ? new Date(tokens.expires_at) : null,
+      scope: tokens.scope || null,
+    },
+    update: {
       account_email: tokens.account_email || undefined,
       refresh_token: tokens.refresh_token || undefined,
       access_token: tokens.access_token || undefined,
-      expires_at: tokens.expires_at || undefined,
+      expires_at: tokens.expires_at ? new Date(tokens.expires_at) : undefined,
       scope: tokens.scope || undefined,
-      updated_at: new Date().toISOString(),
     },
-    { onConflict: "platform" },
-  )
-  if (error) throw new Error(`DB upsert social_tokens (${platform}): ${error.message}`)
+  })
 }
 
 // ============================================================================

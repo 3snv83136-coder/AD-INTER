@@ -1,11 +1,10 @@
-import { NextRequest, NextResponse } from "next/server"
-import { getSupabaseOrNull } from "@/lib/supabase"
-import { getCalendarToken } from "@/lib/calendar-token"
+import { NextRequest, NextResponse } from 'next/server'
+import { dbNotConfiguredResponse, getPrismaOrNull } from '@/lib/db'
+import { getCalendarToken } from '@/lib/calendar-token'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
-/* ============ ICS HELPERS ============ */
 function escapeICS(s: string | null | undefined): string {
   if (!s) return ''
   return String(s)
@@ -15,7 +14,6 @@ function escapeICS(s: string | null | undefined): string {
     .replace(/\r?\n/g, '\\n')
 }
 
-/** Pliage RFC 5545 (75 octets max par ligne). */
 function fold(line: string): string {
   const max = 73
   if (line.length <= max) return line
@@ -32,7 +30,18 @@ function fmtUTCStamp(date: Date): string {
   return date.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')
 }
 
-/** Bloc VTIMEZONE Europe/Paris (CET/CEST). */
+function isoDate(d: Date | null): string {
+  if (!d) return ''
+  return d.toISOString().slice(0, 10)
+}
+
+function timeStr(d: Date | null): string {
+  if (!d) return ''
+  const h = d.getUTCHours()
+  const m = d.getUTCMinutes()
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+}
+
 const VTIMEZONE_PARIS = [
   'BEGIN:VTIMEZONE',
   'TZID:Europe/Paris',
@@ -53,7 +62,6 @@ const VTIMEZONE_PARIS = [
   'END:VTIMEZONE',
 ].join('\r\n')
 
-/* ============ HANDLER ============ */
 export async function GET(req: NextRequest) {
   const url = new URL(req.url)
   const token = (url.searchParams.get('token') || '').trim()
@@ -69,34 +77,56 @@ export async function GET(req: NextRequest) {
     return new NextResponse('Token invalide.', { status: 401 })
   }
 
-  const sb = getSupabaseOrNull()
-  if (!sb) {
-    return new NextResponse('Supabase non configuré.', { status: 503 })
+  const prisma = getPrismaOrNull()
+  if (!prisma) {
+    const err = dbNotConfiguredResponse()
+    return new NextResponse(err.error, { status: err.status })
   }
 
-  const { data: interventions, error } = await sb
-    .from('interventions')
-    .select('id, reference, type_intervention, adresse_chantier, ville, code_postal, date_prevue, heure_prevue, duree_estimee_min, urgence, statut, notes_internes, agence, client_id, technicien_id, updated_at')
-    .order('date_prevue', { ascending: true })
-    .range(0, 1999)
+  const interventions = await prisma.intervention.findMany({
+    where: { date_prevue: { not: null }, flux: "crm" },
+    select: {
+      id: true,
+      reference: true,
+      type_intervention: true,
+      adresse_chantier: true,
+      ville: true,
+      code_postal: true,
+      date_prevue: true,
+      heure_prevue: true,
+      duree_estimee_min: true,
+      urgence: true,
+      statut: true,
+      notes_internes: true,
+      agence: true,
+      client_id: true,
+      technicien_id: true,
+      updated_at: true,
+    },
+    orderBy: { date_prevue: 'asc' },
+    take: 2000,
+  })
 
-  if (error) {
-    return new NextResponse(`Erreur Supabase : ${error.message}`, { status: 500 })
-  }
+  const clientIds = Array.from(new Set(interventions.map(i => i.client_id).filter((v): v is string => !!v)))
+  const techIds = Array.from(new Set(interventions.map(i => i.technicien_id).filter((v): v is string => !!v)))
 
-  // Charge les clients & techniciens référencés en deux requêtes
-  const clientIds = Array.from(new Set((interventions || []).map(i => i.client_id).filter(Boolean) as string[]))
-  const techIds = Array.from(new Set((interventions || []).map(i => i.technicien_id).filter(Boolean) as string[]))
-  const [{ data: clients }, { data: techniciens }] = await Promise.all([
+  const [clients, techniciens] = await Promise.all([
     clientIds.length
-      ? sb.from('clients').select('id, nom, telephone, email').in('id', clientIds)
-      : Promise.resolve({ data: [] as any[] }),
+      ? prisma.client.findMany({
+          where: { id: { in: clientIds } },
+          select: { id: true, nom: true, telephone: true, email: true },
+        })
+      : Promise.resolve([]),
     techIds.length
-      ? sb.from('techniciens').select('id, nom, telephone').in('id', techIds)
-      : Promise.resolve({ data: [] as any[] }),
+      ? prisma.technicien.findMany({
+          where: { id: { in: techIds } },
+          select: { id: true, nom: true, telephone: true },
+        })
+      : Promise.resolve([]),
   ])
-  const clientMap = new Map((clients || []).map((c: any) => [c.id, c]))
-  const techMap = new Map((techniciens || []).map((t: any) => [t.id, t]))
+
+  const clientMap = new Map(clients.map(c => [c.id, c]))
+  const techMap = new Map(techniciens.map(t => [t.id, t]))
 
   const origin = url.origin
   const now = fmtUTCStamp(new Date())
@@ -114,7 +144,7 @@ export async function GET(req: NextRequest) {
   lines.push('X-PUBLISHED-TTL:PT15M')
   lines.push(VTIMEZONE_PARIS)
 
-  for (const i of interventions || []) {
+  for (const i of interventions) {
     if (!i.date_prevue) continue
 
     const client = i.client_id ? clientMap.get(i.client_id) : null
@@ -147,16 +177,14 @@ export async function GET(req: NextRequest) {
     descParts.push(`Fiche : ${origin}/intervention/${i.id}`)
     const description = descParts.join('\n')
 
-    // DTSTART / DTEND
     let dtstartLine: string, dtendLine: string
     if (i.heure_prevue) {
-      const ymd = String(i.date_prevue).replaceAll('-', '')
-      const hm = String(i.heure_prevue).slice(0, 5).replace(':', '')
+      const ymd = isoDate(i.date_prevue).replaceAll('-', '')
+      const hm = timeStr(i.heure_prevue).replace(':', '')
       const dtstart = `${ymd}T${hm}00`
 
-      // calc end = start + duree (default 60 min)
-      const [y, mo, d] = String(i.date_prevue).split('-').map(Number)
-      const [h, m] = String(i.heure_prevue).slice(0, 5).split(':').map(Number)
+      const [y, mo, d] = isoDate(i.date_prevue).split('-').map(Number)
+      const [h, m] = timeStr(i.heure_prevue).split(':').map(Number)
       const dur = i.duree_estimee_min ?? 60
       const endTs = new Date(y, mo - 1, d, h, m + dur)
       const ey = endTs.getFullYear()
@@ -169,9 +197,8 @@ export async function GET(req: NextRequest) {
       dtstartLine = `DTSTART;TZID=Europe/Paris:${dtstart}`
       dtendLine = `DTEND;TZID=Europe/Paris:${dtend}`
     } else {
-      // toute la journée
-      const ymd = String(i.date_prevue).replaceAll('-', '')
-      const next = new Date(i.date_prevue + 'T00:00:00Z')
+      const ymd = isoDate(i.date_prevue).replaceAll('-', '')
+      const next = new Date(isoDate(i.date_prevue) + 'T00:00:00Z')
       next.setUTCDate(next.getUTCDate() + 1)
       const nextYmd = next.toISOString().slice(0, 10).replaceAll('-', '')
       dtstartLine = `DTSTART;VALUE=DATE:${ymd}`
@@ -184,7 +211,7 @@ export async function GET(req: NextRequest) {
 
     let lastMod = now
     if (i.updated_at) {
-      try { lastMod = fmtUTCStamp(new Date(i.updated_at)) } catch {}
+      try { lastMod = fmtUTCStamp(i.updated_at) } catch { /* ignore */ }
     }
 
     lines.push('BEGIN:VEVENT')
@@ -205,7 +232,6 @@ export async function GET(req: NextRequest) {
 
   lines.push('END:VCALENDAR')
 
-  // RFC 5545 : CRLF
   const ics = lines.join('\r\n') + '\r\n'
 
   return new NextResponse(ics, {

@@ -1,4 +1,4 @@
-import type { AccordIntervention, LigneDevis } from "@/lib/supabase"
+import type { AccordIntervention, LigneDevis } from "@/lib/types"
 import { fmtEUR, fmtDateFR } from "@/lib/format"
 import {
   ACCORD_TITRE,

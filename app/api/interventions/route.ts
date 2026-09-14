@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
-import { auth } from "@/lib/auth"
-import { technicienFilterForSession } from "@/lib/intervention-access"
-import { getSupabaseOrNull, upsertClient, patchClient } from "@/lib/supabase"
+import { Prisma } from "@prisma/client"
+import { getSessionUser, technicienFilterForSession } from "@/lib/intervention-access"
+import { getPrismaOrNull, dbNotConfiguredResponse } from "@/lib/db"
+import { upsertClient, patchClient } from "@/lib/db-helpers"
 import { isCanalAcquisition } from "@/lib/canaux"
+import { FLUX_CRM, FLUX_RAPPORTEUR, isRapporteurFlux } from "@/lib/rapporteur"
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
@@ -20,6 +22,8 @@ type ClientInput = {
 type CreateInterventionBody = {
   client?: ClientInput
   technicien_id?: string | null
+  sous_traitant_id?: string | null
+  flux?: string | null
   agence?: string | null
   type_intervention?: string | null
   adresse_chantier?: string | null
@@ -32,6 +36,32 @@ type CreateInterventionBody = {
   prix_prevu?: number | null
   notes_internes?: string | null
   canal_acquisition?: string | null
+}
+
+function formatDate(d: Date | null | undefined): string | null {
+  return d ? d.toISOString().slice(0, 10) : null
+}
+
+function formatTime(d: Date | null | undefined): string | null {
+  if (!d) return null
+  const hh = String(d.getUTCHours()).padStart(2, '0')
+  const mi = String(d.getUTCMinutes()).padStart(2, '0')
+  return `${hh}:${mi}`
+}
+
+function serializeIntervention(row: Record<string, unknown>) {
+  return {
+    ...row,
+    date_prevue: formatDate(row.date_prevue as Date | null),
+    date_realisee: formatDate(row.date_realisee as Date | null),
+    heure_prevue: formatTime(row.heure_prevue as Date | null),
+    prix_prevu: row.prix_prevu != null ? Number(row.prix_prevu) : null,
+    created_at: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
+    updated_at: row.updated_at instanceof Date ? row.updated_at.toISOString() : row.updated_at,
+    rapporteur_envoye_at: row.rapporteur_envoye_at instanceof Date
+      ? row.rapporteur_envoye_at.toISOString()
+      : row.rapporteur_envoye_at,
+  }
 }
 
 function buildReference(date_prevue?: string | null, heure_prevue?: string | null): string {
@@ -59,93 +89,132 @@ function buildReference(date_prevue?: string | null, heure_prevue?: string | nul
   return `Allo Débouchage-${datePart}-${timePart}`
 }
 
+function parseHeurePrevue(s: string | null | undefined): Date | null {
+  if (!s || !/^\d{2}:\d{2}/.test(s)) return null
+  const [hh, mi] = s.slice(0, 5).split(':').map(Number)
+  return new Date(Date.UTC(1970, 0, 1, hh, mi, 0))
+}
+
 export async function GET(req: NextRequest) {
-  const sb = getSupabaseOrNull()
-  if (!sb) {
-    return NextResponse.json({
-      error: 'Supabase non configuré (SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY manquants)',
-      interventions: [],
-    }, { status: 500 })
+  const prisma = getPrismaOrNull()
+  if (!prisma) {
+    const { error, status } = dbNotConfiguredResponse()
+    return NextResponse.json({ error, interventions: [] }, { status })
   }
 
   const url = new URL(req.url)
   const statut = url.searchParams.get('statut')
   const technicien_id = url.searchParams.get('technicien_id')
-  const session = await auth()
-  const sessionTechId = technicienFilterForSession(
-    session?.user
-      ? { role: session.user.role, technicienId: session.user.technicienId ?? null }
-      : null,
-  )
+  const sessionUser = await getSessionUser()
+  const sessionTechId = technicienFilterForSession(sessionUser)
   const agence = url.searchParams.get('agence')
   const from = url.searchParams.get('from')
   const to = url.searchParams.get('to')
+  const fluxParam = url.searchParams.get('flux')
   const limit = Math.min(Number(url.searchParams.get('limit')) || 200, 500)
 
-  let query = sb
-    .from('interventions')
-    .select('id, reference, client_id, technicien_id, agence, type_intervention, adresse_chantier, ville, code_postal, date_prevue, heure_prevue, duree_estimee_min, date_realisee, urgence, statut, prix_prevu, notes_internes, publie_slug, canal_acquisition, terrain_step, created_at, updated_at')
-    .order('date_prevue', { ascending: true, nullsFirst: false })
-    .order('heure_prevue', { ascending: true, nullsFirst: false })
-    // range() au lieu de limit() : limit + order drop la ligne la plus
-    // récente sur supabase-js (bug documenté, cf. /api/historique).
-    .range(0, limit - 1)
-
-  if (statut) query = query.eq('statut', statut)
-  if (sessionTechId) query = query.eq('technicien_id', sessionTechId)
-  else if (technicien_id) query = query.eq('technicien_id', technicien_id)
-  if (agence) query = query.eq('agence', agence)
-  if (from) query = query.gte('date_prevue', from)
-  if (to) query = query.lte('date_prevue', to)
-
-  const { data: interventions, error } = await query
-  if (error) {
-    return NextResponse.json({ error: error.message, interventions: [] }, { status: 500 })
+  const where: Prisma.InterventionWhereInput = {}
+  if (statut) where.statut = statut
+  if (sessionTechId) where.technicien_id = sessionTechId
+  else if (technicien_id) where.technicien_id = technicien_id
+  if (agence) where.agence = agence
+  if (fluxParam === 'all') {
+    /* pas de filtre flux */
+  } else if (fluxParam === FLUX_RAPPORTEUR) {
+    where.flux = FLUX_RAPPORTEUR
+  } else {
+    where.flux = FLUX_CRM
+  }
+  if (from || to) {
+    where.date_prevue = {}
+    if (from) where.date_prevue.gte = new Date(from)
+    if (to) where.date_prevue.lte = new Date(to)
   }
 
-  const clientIds = new Set<string>()
-  const techIds = new Set<string>()
-  ;(interventions || []).forEach(i => {
-    if (i.client_id) clientIds.add(i.client_id)
-    if (i.technicien_id) techIds.add(i.technicien_id)
-  })
+  try {
+    const interventions = await prisma.intervention.findMany({
+      where,
+      select: {
+        id: true, reference: true, client_id: true, technicien_id: true, agence: true,
+        type_intervention: true, adresse_chantier: true, ville: true, code_postal: true,
+        date_prevue: true, heure_prevue: true, duree_estimee_min: true, date_realisee: true,
+        urgence: true, statut: true, prix_prevu: true, notes_internes: true, publie_slug: true,
+        canal_acquisition: true, terrain_step: true, flux: true, sous_traitant_id: true,
+        rapporteur_envoye_at: true, rapporteur_facture_id: true,
+        created_at: true, updated_at: true,
+      },
+      orderBy: [{ date_prevue: { sort: 'asc', nulls: 'last' } }, { heure_prevue: { sort: 'asc', nulls: 'last' } }],
+      take: limit,
+    })
 
-  const [clientsRes, techsRes] = await Promise.all([
-    clientIds.size > 0
-      ? sb.from('clients').select('id, nom, email, telephone').in('id', Array.from(clientIds))
-      : Promise.resolve({ data: [], error: null } as const),
-    techIds.size > 0
-      ? sb.from('techniciens').select('id, nom, email').in('id', Array.from(techIds))
-      : Promise.resolve({ data: [], error: null } as const),
-  ])
+    const clientIds = new Set<string>()
+    const techIds = new Set<string>()
+    const stIds = new Set<string>()
+    interventions.forEach(i => {
+      if (i.client_id) clientIds.add(i.client_id)
+      if (i.technicien_id) techIds.add(i.technicien_id)
+      if (i.sous_traitant_id) stIds.add(i.sous_traitant_id)
+    })
 
-  const clientsMap: Record<string, { nom: string; email: string | null; telephone: string | null }> = {}
-  ;(clientsRes.data || []).forEach((c: { id: string; nom: string; email: string | null; telephone: string | null }) => {
-    clientsMap[c.id] = { nom: c.nom, email: c.email, telephone: c.telephone }
-  })
-  const techsMap: Record<string, { nom: string; email: string | null }> = {}
-  ;(techsRes.data || []).forEach((t: { id: string; nom: string; email: string | null }) => {
-    techsMap[t.id] = { nom: t.nom, email: t.email }
-  })
+    const [clientsRes, techsRes, stRes] = await Promise.all([
+      clientIds.size > 0
+        ? prisma.client.findMany({
+            where: { id: { in: Array.from(clientIds) } },
+            select: { id: true, nom: true, email: true, telephone: true },
+          })
+        : Promise.resolve([]),
+      techIds.size > 0
+        ? prisma.technicien.findMany({
+            where: { id: { in: Array.from(techIds) } },
+            select: { id: true, nom: true, email: true },
+          })
+        : Promise.resolve([]),
+      stIds.size > 0
+        ? prisma.sousTraitant.findMany({
+            where: { id: { in: Array.from(stIds) } },
+            select: { id: true, nom: true, email: true, telephone: true },
+          })
+        : Promise.resolve([]),
+    ])
 
-  const decorated = (interventions || []).map(i => ({
-    ...i,
-    client_nom: i.client_id ? clientsMap[i.client_id]?.nom ?? null : null,
-    client_email: i.client_id ? clientsMap[i.client_id]?.email ?? null : null,
-    client_telephone: i.client_id ? clientsMap[i.client_id]?.telephone ?? null : null,
-    technicien_nom: i.technicien_id ? techsMap[i.technicien_id]?.nom ?? null : null,
-    technicien_email: i.technicien_id ? techsMap[i.technicien_id]?.email ?? null : null,
-  }))
+    const clientsMap: Record<string, { nom: string; email: string | null; telephone: string | null }> = {}
+    clientsRes.forEach(c => { clientsMap[c.id] = { nom: c.nom, email: c.email, telephone: c.telephone } })
+    const techsMap: Record<string, { nom: string; email: string | null }> = {}
+    techsRes.forEach(t => { techsMap[t.id] = { nom: t.nom, email: t.email } })
+    const stMap: Record<string, { nom: string; email: string | null; telephone: string | null }> = {}
+    stRes.forEach(s => { stMap[s.id] = { nom: s.nom, email: s.email, telephone: s.telephone } })
 
-  return NextResponse.json({ interventions: decorated })
+    const decorated = interventions.map(i => {
+      const row = serializeIntervention(i as unknown as Record<string, unknown>)
+      const st = i.sous_traitant_id ? stMap[i.sous_traitant_id] : null
+      return {
+        ...row,
+        client_nom: i.client_id ? clientsMap[i.client_id]?.nom ?? null : null,
+        client_email: i.client_id ? clientsMap[i.client_id]?.email ?? null : null,
+        client_telephone: i.client_id ? clientsMap[i.client_id]?.telephone ?? null : null,
+        technicien_nom: i.technicien_id ? techsMap[i.technicien_id]?.nom ?? null : null,
+        technicien_email: i.technicien_id ? techsMap[i.technicien_id]?.email ?? null : null,
+        sous_traitant_nom: st?.nom ?? null,
+        sous_traitant_email: st?.email ?? null,
+        sous_traitant_telephone: st?.telephone ?? null,
+        rapporteur_envoye_at: i.rapporteur_envoye_at instanceof Date
+          ? i.rapporteur_envoye_at.toISOString()
+          : i.rapporteur_envoye_at,
+      }
+    })
+
+    return NextResponse.json({ interventions: decorated })
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Erreur base de données'
+    return NextResponse.json({ error: msg, interventions: [] }, { status: 500 })
+  }
 }
 
 export async function POST(req: NextRequest) {
-  const sb = getSupabaseOrNull()
-  if (!sb) {
-    return NextResponse.json({
-      error: 'Supabase non configuré (SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY manquants)',
-    }, { status: 500 })
+  const prisma = getPrismaOrNull()
+  if (!prisma) {
+    const { error, status } = dbNotConfiguredResponse()
+    return NextResponse.json({ error }, { status })
   }
 
   let body: CreateInterventionBody
@@ -159,16 +228,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'type_intervention requis' }, { status: 400 })
   }
 
-  // 1. Resolve client — IMPÉRATIF : pas de création d'intervention sans client.
-  // Sans ce verrou, une UI buggée (cache PWA stale, validation contournée) crée
-  // des interventions orphelines qui s'affichent "Client inconnu · —" et bloquent
-  // le wizard d'envoi.
   let clientId: string | null = null
   if (body.client?.id) {
     clientId = body.client.id
-    // Si l'UI a déjà résolu le client (autocomplete) ET que l'utilisateur a
-    // saisi/modifié des champs dans la modale, on les applique sur la fiche
-    // existante (merge non destructif via patchClient).
     await patchClient(clientId, {
       nom: body.client.nom ?? null,
       email: body.client.email ?? null,
@@ -196,10 +258,8 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  // 2. Reference (avec retry sur collision unique)
   const baseReference = buildReference(body.date_prevue, body.heure_prevue)
 
-  // 3. Default chantier address from client if not provided
   const adresseChantier = body.adresse_chantier ?? body.client?.adresse ?? null
   const ville = body.ville ?? body.client?.ville ?? null
   const codePostal = body.code_postal ?? body.client?.code_postal ?? null
@@ -209,17 +269,25 @@ export async function POST(req: NextRequest) {
     : null
 
   const canalClean = isCanalAcquisition(body.canal_acquisition) ? body.canal_acquisition : null
+  const flux = isRapporteurFlux(body.flux) ? FLUX_RAPPORTEUR : FLUX_CRM
+  const sousTraitantId = body.sous_traitant_id?.trim() || null
+
+  if (flux === FLUX_RAPPORTEUR && !sousTraitantId) {
+    return NextResponse.json({ error: 'Sous-traitant requis pour le rapporteur d’affaires' }, { status: 400 })
+  }
 
   const baseRow = {
     client_id: clientId,
-    technicien_id: body.technicien_id || null,
+    technicien_id: flux === FLUX_RAPPORTEUR ? null : (body.technicien_id || null),
+    sous_traitant_id: flux === FLUX_RAPPORTEUR ? sousTraitantId : null,
+    flux,
     agence: body.agence || null,
     type_intervention: body.type_intervention,
     adresse_chantier: adresseChantier,
     ville,
     code_postal: codePostal,
-    date_prevue: body.date_prevue || null,
-    heure_prevue: heurePrevueClean,
+    date_prevue: body.date_prevue && /^\d{4}-\d{2}-\d{2}$/.test(body.date_prevue) ? new Date(body.date_prevue) : null,
+    heure_prevue: parseHeurePrevue(heurePrevueClean),
     duree_estimee_min: typeof body.duree_estimee_min === 'number' ? body.duree_estimee_min : null,
     urgence: !!body.urgence,
     statut: 'planifiee',
@@ -228,72 +296,64 @@ export async function POST(req: NextRequest) {
     canal_acquisition: canalClean,
   }
 
-  let inserted: any = null
-  let insertErr: any = null
+  let inserted: Record<string, unknown> | null = null
+  let insertErr: Error | null = null
   let currentRef = baseReference
   for (let attempt = 0; attempt < 5; attempt++) {
-    const res = await sb
-      .from('interventions')
-      .insert({ reference: currentRef, ...baseRow })
-      .select('*')
-      .single()
-    if (!res.error && res.data) {
-      inserted = res.data
+    try {
+      const data = await prisma.intervention.create({
+        data: { reference: currentRef, ...baseRow },
+      })
+      inserted = data as unknown as Record<string, unknown>
       insertErr = null
       break
+    } catch (e) {
+      const code = (e as { code?: string })?.code
+      if (code === 'P2002') {
+        const suffix = Math.random().toString(36).slice(2, 5).toUpperCase()
+        currentRef = `${baseReference}-${suffix}`
+        continue
+      }
+      insertErr = e instanceof Error ? e : new Error(String(e))
+      break
     }
-    insertErr = res.error
-    if (res.error?.code === '23505') {
-      const suffix = Math.random().toString(36).slice(2, 5).toUpperCase()
-      currentRef = `${baseReference}-${suffix}`
-      continue
-    }
-    break
   }
 
   if (insertErr || !inserted) {
     return NextResponse.json({ error: insertErr?.message || 'Insertion échouée' }, { status: 500 })
   }
 
-  // 4. Fire & forget tech notification
   if (inserted.technicien_id) {
-    notifyTechBestEffort(req, inserted.id, inserted.technicien_id).catch(e => {
+    notifyTechBestEffort(req, inserted.id as string, inserted.technicien_id as string).catch(e => {
       console.error('[interventions.POST notify]', e)
     })
   }
 
-  return NextResponse.json({ intervention: inserted }, { status: 201 })
+  return NextResponse.json({ intervention: serializeIntervention(inserted) }, { status: 201 })
 }
 
 async function notifyTechBestEffort(req: NextRequest, interventionId: string, technicienId: string) {
-  const sb = getSupabaseOrNull()
-  if (!sb) return
+  const prisma = getPrismaOrNull()
+  if (!prisma) return
 
-  const { data: tech } = await sb
-    .from('techniciens')
-    .select('id, nom, email')
-    .eq('id', technicienId)
-    .maybeSingle()
+  const tech = await prisma.technicien.findUnique({
+    where: { id: technicienId },
+    select: { id: true, nom: true, email: true },
+  })
 
   if (!tech?.email) return
 
-  const { data: i } = await sb
-    .from('interventions')
-    .select('*')
-    .eq('id', interventionId)
-    .maybeSingle()
-
+  const i = await prisma.intervention.findUnique({ where: { id: interventionId } })
   if (!i) return
 
   let clientNom: string | null = null
   let clientTel: string | null = null
   let clientEmail: string | null = null
   if (i.client_id) {
-    const { data: c } = await sb
-      .from('clients')
-      .select('nom, email, telephone')
-      .eq('id', i.client_id)
-      .maybeSingle()
+    const c = await prisma.client.findUnique({
+      where: { id: i.client_id },
+      select: { nom: true, email: true, telephone: true },
+    })
     clientNom = c?.nom ?? null
     clientTel = c?.telephone ?? null
     clientEmail = c?.email ?? null
@@ -304,8 +364,6 @@ async function notifyTechBestEffort(req: NextRequest, interventionId: string, te
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      // Appel interne serveur→serveur : pas de cookie de session, le
-      // middleware d'auth l'autorise via ce header secret partagé.
       'x-internal-auth': process.env.NEXTAUTH_SECRET || '',
     },
     body: JSON.stringify({
@@ -318,11 +376,11 @@ async function notifyTechBestEffort(req: NextRequest, interventionId: string, te
       adresse_chantier: i.adresse_chantier,
       ville: i.ville,
       code_postal: i.code_postal,
-      date_prevue: i.date_prevue,
-      heure_prevue: i.heure_prevue,
+      date_prevue: formatDate(i.date_prevue),
+      heure_prevue: formatTime(i.heure_prevue),
       type_intervention: i.type_intervention,
       urgence: i.urgence,
-      prix_prevu: i.prix_prevu,
+      prix_prevu: i.prix_prevu != null ? Number(i.prix_prevu) : null,
       notes_internes: i.notes_internes,
     }),
   }).catch(e => console.error('[notifyTechBestEffort fetch]', e))

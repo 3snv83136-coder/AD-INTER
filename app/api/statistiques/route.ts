@@ -1,28 +1,22 @@
-import { NextRequest, NextResponse } from "next/server"
-import { getSupabaseOrNull } from "@/lib/supabase"
-import { CANAUX_ACQUISITION } from "@/lib/canaux"
+import { NextRequest, NextResponse } from 'next/server'
+import { dbNotConfiguredResponse, getPrismaOrNull } from '@/lib/db'
+import { CANAUX_ACQUISITION } from '@/lib/canaux'
 
 export const dynamic = 'force-dynamic'
 
+function isoDate(d: Date | null): string {
+  if (!d) return ''
+  return d.toISOString().slice(0, 10)
+}
+
 /**
  * Agrégation des interventions par canal d'acquisition.
- * Filtres acceptés en query string :
- *   - from / to (YYYY-MM-DD) : date_prevue dans cette plage (ou date_realisee fallback)
- *   - ville
- *   - departement (préfixe code postal sur 2 chiffres : "83", "13"…)
- *   - canal
- *
- * Renvoie :
- *   - total_interventions, total_ca_ttc (depuis les factures liées)
- *   - par_canal[] : { canal, label, count, ca_ttc, pct }
- *   - par_ville[] : top 10 villes
- *   - par_departement[] : agrégat par préfixe CP (2 premiers chiffres)
- *   - par_mois[] : 12 derniers mois (count)
  */
 export async function GET(req: NextRequest) {
-  const sb = getSupabaseOrNull()
-  if (!sb) {
-    return NextResponse.json({ error: 'Supabase non configuré' }, { status: 500 })
+  const prisma = getPrismaOrNull()
+  if (!prisma) {
+    const err = dbNotConfiguredResponse()
+    return NextResponse.json({ error: err.error }, { status: err.status })
   }
 
   const url = new URL(req.url)
@@ -32,23 +26,32 @@ export async function GET(req: NextRequest) {
   const departementFilter = (url.searchParams.get('departement') || '').trim()
   const canalFilter = (url.searchParams.get('canal') || '').trim()
 
-  // 1) Charge les interventions filtrées (limite raisonnable : 5000 — pour stats)
-  let query = sb
-    .from('interventions')
-    .select('id, ville, code_postal, date_prevue, date_realisee, canal_acquisition, prix_prevu, statut')
-    .range(0, 4999)
+  const interventions = await prisma.intervention.findMany({
+    where: {
+      ...(from || to
+        ? {
+            date_prevue: {
+              ...(from ? { gte: new Date(from) } : {}),
+              ...(to ? { lte: new Date(to) } : {}),
+            },
+          }
+        : {}),
+      ...(canalFilter ? { canal_acquisition: canalFilter } : {}),
+    },
+    select: {
+      id: true,
+      ville: true,
+      code_postal: true,
+      date_prevue: true,
+      date_realisee: true,
+      canal_acquisition: true,
+      prix_prevu: true,
+      statut: true,
+    },
+    take: 5000,
+  })
 
-  if (from) query = query.gte('date_prevue', from)
-  if (to) query = query.lte('date_prevue', to)
-  if (canalFilter) query = query.eq('canal_acquisition', canalFilter)
-
-  const { data: interventions, error } = await query
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
-
-  // Filtres ville/département (côté JS car insensible à la casse + préfixe)
-  const filtered = (interventions || []).filter(i => {
+  const filtered = interventions.filter(i => {
     if (villeFilter && (i.ville || '').toLowerCase() !== villeFilter) return false
     if (departementFilter && !(i.code_postal || '').startsWith(departementFilter)) return false
     return true
@@ -56,25 +59,24 @@ export async function GET(req: NextRequest) {
 
   const interventionIds = filtered.map(i => i.id)
 
-  // 2) Charge le CA TTC depuis les factures liées (pas les devis ni les attestations)
   let caByIntervention: Record<string, number> = {}
   if (interventionIds.length > 0) {
-    const { data: docs } = await sb
-      .from('documents')
-      .select('intervention_id, montant_ttc')
-      .eq('type', 'facture')
-      .neq('statut', 'annule')
-      .in('intervention_id', interventionIds)
-    ;(docs || []).forEach(d => {
+    const docs = await prisma.document.findMany({
+      where: {
+        type: 'facture',
+        statut: { not: 'annule' },
+        intervention_id: { in: interventionIds },
+      },
+      select: { intervention_id: true, montant_ttc: true },
+    })
+    docs.forEach(d => {
       if (!d.intervention_id) return
       caByIntervention[d.intervention_id] =
         (caByIntervention[d.intervention_id] || 0) + (Number(d.montant_ttc) || 0)
     })
   }
 
-  // Agrégation par canal
   const canalAgg: Record<string, { count: number; ca: number }> = {}
-  // (pré-initialisation pour avoir tous les canaux dans le résultat même à 0)
   CANAUX_ACQUISITION.forEach(c => { canalAgg[c.key] = { count: 0, ca: 0 } })
   canalAgg['__none__'] = { count: 0, ca: 0 }
 
@@ -85,7 +87,7 @@ export async function GET(req: NextRequest) {
     canalAgg[key].ca += caByIntervention[i.id] || 0
   })
 
-  const total = filtered.length || 1 // évite div by 0 dans les pourcentages
+  const total = filtered.length || 1
   const par_canal = [
     ...CANAUX_ACQUISITION.map(c => ({
       canal: c.key,
@@ -105,7 +107,6 @@ export async function GET(req: NextRequest) {
     },
   ].sort((a, b) => b.count - a.count)
 
-  // Agrégation par ville
   const villeMap: Record<string, { count: number; ca: number; cp: string }> = {}
   filtered.forEach(i => {
     const v = i.ville || '— Inconnu —'
@@ -118,7 +119,6 @@ export async function GET(req: NextRequest) {
     .sort((a, b) => b.count - a.count)
     .slice(0, 20)
 
-  // Agrégation par département (préfixe CP 2 chiffres)
   const depMap: Record<string, { count: number; ca: number }> = {}
   filtered.forEach(i => {
     const dep = (i.code_postal || '').slice(0, 2) || '—'
@@ -130,10 +130,9 @@ export async function GET(req: NextRequest) {
     .map(([departement, v]) => ({ departement, count: v.count, ca_ttc: v.ca }))
     .sort((a, b) => b.count - a.count)
 
-  // Agrégation par mois (12 derniers mois)
   const moisMap: Record<string, number> = {}
   filtered.forEach(i => {
-    const d = i.date_prevue || i.date_realisee || ''
+    const d = isoDate(i.date_prevue) || isoDate(i.date_realisee) || ''
     const m = /^(\d{4}-\d{2})/.exec(d)
     if (!m) return
     moisMap[m[1]] = (moisMap[m[1]] || 0) + 1

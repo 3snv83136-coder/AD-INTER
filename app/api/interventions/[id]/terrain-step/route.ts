@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getSessionUser, assertInterventionAccess } from "@/lib/intervention-access"
-import { getSupabaseOrNull } from "@/lib/supabase"
+import { getPrismaOrNull, dbNotConfiguredResponse } from "@/lib/db"
 
 export const dynamic = 'force-dynamic'
 
@@ -8,20 +8,27 @@ type Params = { params: { id: string } }
 
 type Action = 'debut' | 'fin' | 'set'
 
-/**
- * Endpoint atomique pour faire avancer l'intervention dans le wizard Mode Terrain.
- *
- * Body JSON :
- *   { action: 'debut' }                       → heure_debut_reelle = now(), statut=en_cours, step=2
- *   { action: 'fin' }                         → heure_fin_reelle = now(), statut=terminee
- *   { action: 'set', step: 0..8 }             → set explicite (utile pour "Passer" / revenir en arrière)
- *
- * Réponse : { intervention: <row complète> }
- */
+function serializeIntervention(row: Record<string, unknown>) {
+  const out: Record<string, unknown> = { ...row }
+  for (const key of ['date_prevue', 'date_realisee'] as const) {
+    if (row[key] instanceof Date) out[key] = (row[key] as Date).toISOString().slice(0, 10)
+  }
+  if (row.heure_prevue instanceof Date) {
+    const d = row.heure_prevue as Date
+    out.heure_prevue = `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`
+  }
+  for (const key of ['heure_debut_reelle', 'heure_fin_reelle', 'created_at', 'updated_at', 'mail_envoye_at', 'sms_envoye_at', 'video_rendered_at', 'video_published_at'] as const) {
+    if (row[key] instanceof Date) out[key] = (row[key] as Date).toISOString()
+  }
+  if (row.prix_prevu != null) out.prix_prevu = Number(row.prix_prevu)
+  return out
+}
+
 export async function POST(req: NextRequest, { params }: Params) {
-  const sb = getSupabaseOrNull()
-  if (!sb) {
-    return NextResponse.json({ error: 'Supabase non configuré' }, { status: 500 })
+  const prisma = getPrismaOrNull()
+  if (!prisma) {
+    const { error, status } = dbNotConfiguredResponse()
+    return NextResponse.json({ error }, { status })
   }
 
   const interventionId = params.id
@@ -47,28 +54,23 @@ export async function POST(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'Action invalide (debut | fin | set)' }, { status: 400 })
   }
 
-  const { data: interv, error: intErr } = await sb
-    .from('interventions')
-    .select('id, terrain_step, statut')
-    .eq('id', interventionId)
-    .maybeSingle()
-  if (intErr) return NextResponse.json({ error: intErr.message }, { status: 500 })
+  const interv = await prisma.intervention.findUnique({
+    where: { id: interventionId },
+    select: { id: true, terrain_step: true, statut: true },
+  })
   if (!interv) return NextResponse.json({ error: 'Intervention introuvable' }, { status: 404 })
 
   const update: Record<string, unknown> = {}
-  const now = new Date().toISOString()
+  const now = new Date()
 
   if (action === 'debut') {
     update.heure_debut_reelle = now
     update.statut = 'en_cours'
-    // Avance le step à 2 (= en cours / travaux) si pas déjà plus loin
     if ((interv.terrain_step ?? 0) < 2) update.terrain_step = 2
   } else if (action === 'fin') {
     update.heure_fin_reelle = now
     update.statut = 'terminee'
-    update.date_realisee = now.slice(0, 10)
-    // On NE bump PAS terrain_step ici : la fin du chrono ≠ fin du wizard.
-    // Le wizard continue ensuite : photo après, rapport, facture, envoi.
+    update.date_realisee = new Date(now.toISOString().slice(0, 10))
   } else if (action === 'set') {
     const step = Number(body.step)
     if (!Number.isInteger(step) || step < 0 || step > 8) {
@@ -77,13 +79,14 @@ export async function POST(req: NextRequest, { params }: Params) {
     update.terrain_step = step
   }
 
-  const { data, error } = await sb
-    .from('interventions')
-    .update(update)
-    .eq('id', interventionId)
-    .select('*')
-    .single()
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-
-  return NextResponse.json({ intervention: data })
+  try {
+    const data = await prisma.intervention.update({
+      where: { id: interventionId },
+      data: update,
+    })
+    return NextResponse.json({ intervention: serializeIntervention(data as unknown as Record<string, unknown>) })
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Erreur base de données'
+    return NextResponse.json({ error: msg }, { status: 500 })
+  }
 }

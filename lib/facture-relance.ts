@@ -3,7 +3,8 @@ import { Resend } from "resend"
 import { escapeHtml, getResendFromEmail, getResendRecipient } from "@/lib/email-utils"
 import { fmtEUR } from "@/lib/format"
 import { getTelPrincipal } from "@/lib/parametres"
-import { getSupabaseOrNull } from "@/lib/supabase"
+import { Prisma } from "@prisma/client"
+import { getPrismaOrNull } from "@/lib/db"
 
 /** Relances paiement planifiées à l'envoi de la facture (si non réglée). */
 export const JOURS_RELANCE_FACTURE = [10, 15, 20] as const
@@ -42,9 +43,12 @@ export function relanceIdsFromPayload(payload: unknown): string[] {
 }
 
 export async function annulerRelancesFacture(documentId: string): Promise<number> {
-  const sb = getSupabaseOrNull()
-  if (!sb) return 0
-  const { data } = await sb.from("documents").select("payload").eq("id", documentId).maybeSingle()
+  const prisma = getPrismaOrNull()
+  if (!prisma) return 0
+  const data = await prisma.document.findUnique({
+    where: { id: documentId },
+    select: { payload: true },
+  })
   const ids = relanceIdsFromPayload(data?.payload)
   if (ids.length === 0) return 0
 
@@ -63,12 +67,12 @@ export async function annulerRelancesFacture(documentId: string): Promise<number
   }
 
   const payload = data?.payload as Record<string, unknown>
-  await sb
-    .from("documents")
-    .update({
-      payload: mergeFacturePayloadMeta(payload || {}, { relance_ids: [], relance_planifiees: 0 }),
-    })
-    .eq("id", documentId)
+  await prisma.document.update({
+    where: { id: documentId },
+    data: {
+      payload: mergeFacturePayloadMeta(payload || {}, { relance_ids: [], relance_planifiees: 0 }) as Prisma.InputJsonValue,
+    },
+  })
 
   return canceled
 }

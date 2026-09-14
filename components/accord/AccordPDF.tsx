@@ -1,7 +1,7 @@
 'use client'
 import React from "react"
 import { Document, Page, Text, View, StyleSheet, Image } from "@react-pdf/renderer"
-import type { AccordIntervention, LigneDevis } from "@/lib/supabase"
+import type { AccordIntervention, LigneDevis } from "@/lib/types"
 import type { EmetteurInfo } from "@/components/accord/ApercuAccord"
 import { proxyImageUrl } from "@/lib/proxyImageUrl"
 import {

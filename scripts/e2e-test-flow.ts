@@ -9,27 +9,13 @@
  * Usage : npx tsx scripts/e2e-test-flow.ts
  * Prérequis : serveur dev sur localhost:3000 + .env.local rempli.
  */
-import { createClient } from "@supabase/supabase-js"
-import fs from "node:fs"
-import path from "node:path"
+import { loadEnvLocal } from './_load-env'
+import { disconnectScriptPrisma, getScriptPrisma } from './_prisma'
 
-// Note : en local, après la longue requête /api/generate (~90s), le keep-alive
-// d'undici peut réutiliser une connexion morte ("other side closed"). Sur la
-// prod Vercel chaque route est une lambda isolée — pas de souci. Tester sur prod.
-
-// ── Charge .env.local ──
-const envFile = fs.readFileSync(path.resolve(process.cwd(), ".env.local"), "utf-8")
-for (const line of envFile.split("\n")) {
-  const m = line.match(/^([A-Z_][A-Z0-9_]*)=(.*)$/)
-  if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^"|"$/g, "")
-}
+loadEnvLocal()
 
 const BASE = process.env.E2E_BASE_URL || "http://localhost:3000"
 const TEST_EMAIL = process.env.E2E_TEST_EMAIL || "mondornaji@gmail.com"
-
-const sb = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {
-  auth: { persistSession: false },
-})
 
 let pass = 0
 let fail = 0
@@ -299,28 +285,30 @@ async function main() {
   // ── Vérifications finales en DB ──
   step("VÉRIFICATIONS DB")
   {
-    const { data: iv } = await sb
-      .from("interventions")
-      .select("statut, terrain_step, mail_envoye_at, pdf_rapport_url, heure_debut_reelle, heure_fin_reelle, photos_urls, rapport_json")
-      .eq("id", interventionId)
-      .single()
+    const prisma = getScriptPrisma()
+    const iv = await prisma.intervention.findUnique({
+      where: { id: interventionId },
+      select: {
+        statut: true, terrain_step: true, mail_envoye_at: true, pdf_rapport_url: true,
+        heure_debut_reelle: true, heure_fin_reelle: true, photos_urls: true, rapport_json: true,
+      },
+    })
     if (iv) {
       iv.statut === "terminee" ? ok("statut = terminee") : ko("statut", `attendu terminee, reçu ${iv.statut}`)
-      iv.mail_envoye_at ? ok("mail_envoye_at renseigné", iv.mail_envoye_at) : ko("mail_envoye_at", "null")
+      iv.mail_envoye_at ? ok("mail_envoye_at renseigné", iv.mail_envoye_at.toISOString()) : ko("mail_envoye_at", "null")
       iv.pdf_rapport_url ? ok("pdf_rapport_url renseigné") : ko("pdf_rapport_url", "null")
       iv.heure_debut_reelle && iv.heure_fin_reelle ? ok("heures début/fin OK") : ko("heures", "manquantes")
       ;(iv.photos_urls?.length ?? 0) >= 2 ? ok(`photos_urls = ${iv.photos_urls.length}`) : ko("photos_urls", `${iv.photos_urls?.length ?? 0}`)
-      iv.rapport_json && Object.keys(iv.rapport_json).length > 0 ? ok("rapport_json présent") : ko("rapport_json", "vide")
+      iv.rapport_json && Object.keys(iv.rapport_json as object).length > 0 ? ok("rapport_json présent") : ko("rapport_json", "vide")
     } else {
       ko("Lecture intervention DB", "introuvable")
     }
 
-    const { data: docs } = await sb
-      .from("documents")
-      .select("id, numero, type, pdf_url, envoye_email, envoye_at, montant_ttc")
-      .eq("intervention_id", interventionId)
-      .eq("type", "facture")
-    const fac = docs?.[0]
+    const docs = await prisma.document.findMany({
+      where: { intervention_id: interventionId, type: 'facture' },
+      select: { id: true, numero: true, type: true, pdf_url: true, envoye_email: true, envoye_at: true, montant_ttc: true },
+    })
+    const fac = docs[0]
     if (fac) {
       ok("Facture en DB", `${fac.numero}, ${fac.montant_ttc}€ TTC`)
       fac.pdf_url ? ok("facture.pdf_url renseigné") : ko("facture.pdf_url", "null")
@@ -342,4 +330,4 @@ async function main() {
 main().catch(e => {
   console.error("\n💥 ERREUR FATALE :", e)
   process.exit(1)
-})
+}).finally(() => disconnectScriptPrisma())

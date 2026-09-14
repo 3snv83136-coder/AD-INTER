@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getSupabaseOrNull, type AccordIntervention } from "@/lib/supabase"
+import { dbNotConfiguredResponse, getPrismaOrNull } from "@/lib/db"
+import { serializeAccordIntervention } from "@/lib/types"
 import { escapeHtml, initResend } from "@/lib/email-utils"
 import { getTelPrincipal } from "@/lib/parametres"
 import { fmtEUR, fmtDateFR } from "@/lib/format"
@@ -14,8 +15,11 @@ type Params = { params: { id: string } }
  * (PDF en pièce jointe) par email via Resend.
  */
 export async function POST(req: NextRequest, { params }: Params) {
-  const sb = getSupabaseOrNull()
-  if (!sb) return NextResponse.json({ error: 'Supabase non configuré' }, { status: 500 })
+  const prisma = getPrismaOrNull()
+  if (!prisma) {
+    const { error, status } = dbNotConfiguredResponse()
+    return NextResponse.json({ error }, { status })
+  }
 
   const accordId = params.id
   if (!accordId) return NextResponse.json({ error: 'ID accord manquant' }, { status: 400 })
@@ -27,13 +31,11 @@ export async function POST(req: NextRequest, { params }: Params) {
     body = {}
   }
 
-  const { data: aData } = await sb
-    .from('accords_intervention')
-    .select('*')
-    .eq('id', accordId)
-    .maybeSingle()
+  const aData = await prisma.accordIntervention.findUnique({
+    where: { id: accordId },
+  })
   if (!aData) return NextResponse.json({ error: 'Accord introuvable' }, { status: 404 })
-  const accord = aData as AccordIntervention
+  const accord = serializeAccordIntervention(aData)
 
   const email = (body.email || accord.client_email || '').trim()
   const ctx = initResend(email)
@@ -93,12 +95,20 @@ export async function POST(req: NextRequest, { params }: Params) {
   }
 
   // Trace l'envoi ; mémorise l'email utilisé s'il diffère de la fiche.
-  const patch: Record<string, string> = { copie_envoyee_at: new Date().toISOString() }
+  const patch: { copie_envoyee_at: Date; client_email?: string } = {
+    copie_envoyee_at: new Date(),
+  }
   if (email && email !== accord.client_email) patch.client_email = email
-  const { error: updError } = await sb
-    .from('accords_intervention')
-    .update(patch)
-    .eq('id', accordId)
+
+  let updError: Error | null = null
+  try {
+    await prisma.accordIntervention.update({
+      where: { id: accordId },
+      data: patch,
+    })
+  } catch (e) {
+    updError = e instanceof Error ? e : new Error(String(e))
+  }
 
   return NextResponse.json({
     ok: true,
@@ -122,7 +132,8 @@ function emailAccord({
 }): string {
   const cn = escapeHtml(clientNom || 'Madame, Monsieur')
   const ref = escapeHtml(reference || '')
-  const dateValide = valideAt ? escapeHtml(fmtDateFR(valideAt)) : ''
+  const valideIso = valideAt
+  const dateValide = valideIso ? escapeHtml(fmtDateFR(valideIso)) : ''
   const ttc = fmtEUR(totalTTC)
   const telEsc = escapeHtml(tel)
 

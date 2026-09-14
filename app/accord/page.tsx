@@ -1,6 +1,8 @@
 import Link from "next/link"
 import { redirect } from "next/navigation"
-import { getSupabaseOrNull, type AccordIntervention, type AccordStatut } from "@/lib/supabase"
+import { getPrismaOrNull } from "@/lib/db"
+import type { AccordIntervention, AccordStatut } from "@/lib/types"
+import { serializeAccordIntervention } from "@/lib/types"
 import { fmtDateFR, fmtEUR } from "@/lib/format"
 import StatutSyncBadge from "@/components/accord/StatutSyncBadge"
 import TechAccordChrome from "@/components/TechAccordChrome"
@@ -29,37 +31,32 @@ const STATUT_BADGE: Record<AccordStatut, string> = {
 type LoadResult = {
   accords: AccordIntervention[]
   error: string | null
-  /** true si la table n'existe pas encore (migration 005 non exécutée). */
   needsMigration: boolean
 }
 
 async function loadAccords(technicienId: string | null): Promise<LoadResult> {
-  const sb = getSupabaseOrNull()
-  if (!sb) {
-    return { accords: [], error: 'Supabase non configuré.', needsMigration: false }
+  const prisma = getPrismaOrNull()
+  if (!prisma) {
+    return { accords: [], error: 'Base de données non configurée (DATABASE_URL manquante).', needsMigration: false }
   }
 
-  const { data, error } = technicienId
-    ? await sb
-        .from('accords_intervention')
-        .select('*, interventions!inner(technicien_id)')
-        .eq('interventions.technicien_id', technicienId)
-        .order('created_at', { ascending: false })
-        .limit(200)
-    : await sb
-        .from('accords_intervention')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(200)
-  if (error) {
-    // 42P01 = relation inexistante · PGRST205 = table absente du cache PostgREST
-    const needsMigration =
-      error.code === '42P01' ||
-      error.code === 'PGRST205' ||
-      /accords_intervention/.test(error.message)
-    return { accords: [], error: error.message, needsMigration }
+  try {
+    const data = technicienId
+      ? await prisma.accordIntervention.findMany({
+          where: { intervention: { technicien_id: technicienId } },
+          orderBy: { created_at: 'desc' },
+          take: 200,
+        })
+      : await prisma.accordIntervention.findMany({
+          orderBy: { created_at: 'desc' },
+          take: 200,
+        })
+    return { accords: data.map(serializeAccordIntervention), error: null, needsMigration: false }
+  } catch (e) {
+    const message = e instanceof Error ? e.message : 'Erreur de chargement'
+    const needsMigration = /accords_intervention|does not exist|P2021/.test(message)
+    return { accords: [], error: message, needsMigration }
   }
-  return { accords: (data as AccordIntervention[]) || [], error: null, needsMigration: false }
 }
 
 export default async function AccordHubPage() {
@@ -110,8 +107,8 @@ export default async function AccordHubPage() {
         {needsMigration && (
           <div className="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-xl text-sm">
             <div className="font-bold mb-1">⚠ Base de données non initialisée</div>
-            Exécute la migration <code className="font-mono">supabase/migrations/005_accord_intervention.sql</code>{' '}
-            dans Supabase (SQL Editor) pour activer le module.
+            Exécute les migrations Prisma (<code className="font-mono">npx prisma migrate deploy</code>){' '}
+            pour activer le module.
           </div>
         )}
 
@@ -140,33 +137,36 @@ export default async function AccordHubPage() {
 
         {accords.length > 0 && (
           <ul className="space-y-2">
-            {accords.map(a => (
-              <li key={a.id}>
-                <Link
-                  href={`/accord/${a.id}`}
-                  className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm flex items-center justify-between gap-4 hover:border-slate-300 hover:shadow transition"
-                >
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-bold text-slate-800 truncate">
-                        {a.client_nom || 'Client sans nom'}
-                      </span>
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${STATUT_BADGE[a.statut]}`}>
-                        {STATUT_LABEL[a.statut]}
-                      </span>
+            {accords.map(a => {
+              const statut = a.statut as AccordStatut
+              return (
+                <li key={a.id}>
+                  <Link
+                    href={`/accord/${a.id}`}
+                    className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm flex items-center justify-between gap-4 hover:border-slate-300 hover:shadow transition"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-bold text-slate-800 truncate">
+                          {a.client_nom || 'Client sans nom'}
+                        </span>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${STATUT_BADGE[statut]}`}>
+                          {STATUT_LABEL[statut]}
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-slate-500 truncate">
+                        {a.reference || a.id.slice(0, 8)}
+                        {a.client_ville ? ` · ${a.client_ville}` : ''}
+                        {` · ${fmtDateFR(a.created_at)}`}
+                      </div>
                     </div>
-                    <div className="text-[11px] text-slate-500 truncate">
-                      {a.reference || a.id.slice(0, 8)}
-                      {a.client_ville ? ` · ${a.client_ville}` : ''}
-                      {` · ${fmtDateFR(a.created_at)}`}
+                    <div className="text-right shrink-0">
+                      <div className="font-black text-slate-800">{fmtEUR(a.total_ttc)}</div>
                     </div>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <div className="font-black text-slate-800">{fmtEUR(a.total_ttc)}</div>
-                  </div>
-                </Link>
-              </li>
-            ))}
+                  </Link>
+                </li>
+              )
+            })}
           </ul>
         )}
       </main>

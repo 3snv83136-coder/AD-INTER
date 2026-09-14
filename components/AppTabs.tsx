@@ -15,7 +15,7 @@ type Tab = {
 }
 
 const TABS: Tab[] = [
-  { href: '/',             label: 'Accueil',      Icon: HomeIcon },
+  { href: '/crm',          label: 'Accueil',      Icon: HomeIcon },
   { href: '/planning',     label: 'Planning',     Icon: CalendarIcon },
   { href: '/nouveau',      label: 'Rapport',      Icon: DocumentIcon },
   { href: '/inspection',   label: 'Caméra',       Icon: CameraIcon },
@@ -36,8 +36,8 @@ export default function AppTabs() {
     <nav className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 scrollbar-hide">
       <div className="inline-flex gap-1 p-1 bg-slate-100 rounded-2xl mb-3 whitespace-nowrap min-w-max sm:min-w-0">
         {visibleTabs.map(t => {
-          const active = t.href === '/'
-            ? pathname === '/'
+          const active = t.href === '/crm'
+            ? pathname === '/crm'
             : pathname.startsWith(t.href)
           const Icon = t.Icon
           return (

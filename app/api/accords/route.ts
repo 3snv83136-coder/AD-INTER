@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getSupabaseOrNull } from "@/lib/supabase"
+import { dbNotConfiguredResponse, getPrismaOrNull } from "@/lib/db"
 import { calculDevis, totalLigne, type LigneDraft } from "@/lib/accord/calcul-devis"
 import { getSessionUser, assertInterventionAccess } from "@/lib/intervention-access"
+import { uploadBlob } from "@/lib/storage"
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
-
-const BUCKET = 'accords-pdfs'
 
 /** Référence lisible d'un accord : ACC-YYYYMMDD-HHMM. */
 function buildReference(): string {
@@ -65,9 +64,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'JSON invalide' }, { status: 400 })
   }
 
-  const sb = getSupabaseOrNull()
-  if (!sb) {
-    return NextResponse.json({ error: 'Supabase non configuré' }, { status: 500 })
+  const prisma = getPrismaOrNull()
+  if (!prisma) {
+    const { error, status } = dbNotConfiguredResponse()
+    return NextResponse.json({ error }, { status })
   }
 
   const user = await getSessionUser()
@@ -82,11 +82,10 @@ export async function POST(req: NextRequest) {
   // --- Idempotence : un accord déjà synchronisé pour ce local_id ? ---
   const localId = (body.local_id || '').trim() || null
   if (localId) {
-    const { data: existing } = await sb
-      .from('accords_intervention')
-      .select('id, reference, statut')
-      .eq('local_id', localId)
-      .maybeSingle()
+    const existing = await prisma.accordIntervention.findUnique({
+      where: { local_id: localId },
+      select: { id: true, reference: true, statut: true },
+    })
     if (existing?.id) {
       return NextResponse.json({
         ok: true,
@@ -124,11 +123,10 @@ export async function POST(req: NextRequest) {
 
   // Un seul accord par intervention (contrainte unique en base).
   if (interventionId) {
-    const { data: existing } = await sb
-      .from('accords_intervention')
-      .select('id')
-      .eq('intervention_id', interventionId)
-      .maybeSingle()
+    const existing = await prisma.accordIntervention.findUnique({
+      where: { intervention_id: interventionId },
+      select: { id: true },
+    })
     if (existing?.id) {
       return NextResponse.json(
         { error: 'Un accord existe déjà pour cette intervention.' },
@@ -158,94 +156,88 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Signature trop lourde (max 2 MB)' }, { status: 413 })
     }
     const ext = sigMatch[1] === 'jpeg' ? 'jpg' : 'png'
-    const path = `${localId || reference}/signature-${Date.now()}.${ext}`
-    const upload = await sb.storage
-      .from(BUCKET)
-      .upload(path, buf, { contentType: `image/${sigMatch[1]}`, upsert: true })
-    if (upload.error) {
+    try {
+      signatureUrl = await uploadBlob({
+        pathname: `accords/${localId || reference}/signature-${Date.now()}.${ext}`,
+        body: buf,
+        contentType: `image/${sigMatch[1]}`,
+      })
+    } catch (e) {
       return NextResponse.json(
-        { error: `Upload de la signature échoué : ${upload.error.message}` },
+        { error: `Upload de la signature échoué : ${e instanceof Error ? e.message : 'erreur'}` },
         { status: 502 },
       )
     }
-    const { data: pub } = sb.storage.from(BUCKET).getPublicUrl(path)
-    signatureUrl = pub?.publicUrl || null
   }
 
   const estValide = !!signatureUrl
   // Horodatage de la signature : heure du device si fournie et valide, sinon maintenant.
   const valideAtDevice = body.valide_at && !Number.isNaN(Date.parse(body.valide_at))
-    ? new Date(body.valide_at).toISOString()
-    : new Date().toISOString()
+    ? new Date(body.valide_at)
+    : new Date()
   const ipClient =
     req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
     req.headers.get('x-real-ip') ||
     null
   const userAgent = req.headers.get('user-agent') || null
 
-  const { data: accord, error } = await sb
-    .from('accords_intervention')
-    .insert({
-      reference,
-      local_id: localId,
-      synced_at: localId ? new Date().toISOString() : null,
-      intervention_id: interventionId,
-      client_id: body.client_id || null,
-      client_nom: clientNom,
-      client_adresse: body.client_adresse?.trim() || null,
-      client_code_postal: body.client_code_postal?.trim() || null,
-      client_ville: body.client_ville?.trim() || null,
-      client_telephone: body.client_telephone?.trim() || null,
-      client_email: body.client_email?.trim() || null,
-      frais_deplacement: fraisDeplacement,
-      total_ht: totalHT,
-      taux_tva: tauxTVA,
-      total_tva: totalTVA,
-      total_ttc: totalTTC,
-      validite_jours: Number(body.validite_jours) || 30,
-      intervention_urgente: body.intervention_urgente !== false,
-      a_travaux_non_urgents: lignes.some(l => !l.urgent),
-      statut: estValide ? 'VALIDE' : 'BROUILLON',
-      canal_validation: estValide ? (body.canal_validation === 'SMS' ? 'SMS' : 'SIGNATURE') : null,
-      signature_image: signatureUrl,
-      valide_at: estValide ? valideAtDevice : null,
-      demande_expresse: estValide,
-      renonciation_retractation: estValide,
-      ip_client: estValide ? ipClient : null,
-      user_agent: estValide ? userAgent : null,
+  try {
+    const accord = await prisma.accordIntervention.create({
+      data: {
+        reference,
+        local_id: localId,
+        synced_at: localId ? new Date() : null,
+        intervention_id: interventionId,
+        client_id: body.client_id || null,
+        client_nom: clientNom,
+        client_adresse: body.client_adresse?.trim() || null,
+        client_code_postal: body.client_code_postal?.trim() || null,
+        client_ville: body.client_ville?.trim() || null,
+        client_telephone: body.client_telephone?.trim() || null,
+        client_email: body.client_email?.trim() || null,
+        frais_deplacement: fraisDeplacement,
+        total_ht: totalHT,
+        taux_tva: tauxTVA,
+        total_tva: totalTVA,
+        total_ttc: totalTTC,
+        validite_jours: Number(body.validite_jours) || 30,
+        intervention_urgente: body.intervention_urgente !== false,
+        a_travaux_non_urgents: lignes.some(l => !l.urgent),
+        statut: estValide ? 'VALIDE' : 'BROUILLON',
+        canal_validation: estValide ? (body.canal_validation === 'SMS' ? 'SMS' : 'SIGNATURE') : null,
+        signature_image: signatureUrl,
+        valide_at: estValide ? valideAtDevice : null,
+        demande_expresse: estValide,
+        renonciation_retractation: estValide,
+        ip_client: estValide ? ipClient : null,
+        user_agent: estValide ? userAgent : null,
+        lignes: {
+          create: lignes.map((l, i) => ({
+            tarif_type: l.tarif_type,
+            label: l.label,
+            prix_unitaire: l.prix_unitaire,
+            unite: l.unite,
+            quantite: l.quantite,
+            total_ligne: totalLigne(l),
+            urgent: l.urgent,
+            position: i,
+          })),
+        },
+      },
+      select: { id: true, reference: true, statut: true },
     })
-    .select('id, reference, statut')
-    .single()
 
-  if (error || !accord) {
-    console.error('[POST /api/accords] insert accord', error)
-    return NextResponse.json({ error: error?.message || 'Création impossible' }, { status: 500 })
+    return NextResponse.json({
+      ok: true,
+      id: accord.id,
+      reference: accord.reference,
+      statut: accord.statut,
+    })
+  } catch (e) {
+    console.error('[POST /api/accords] insert accord', e)
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : 'Création impossible' },
+      { status: 500 },
+    )
   }
-
-  const ligneRows = lignes.map((l, i) => ({
-    accord_id: accord.id,
-    tarif_type: l.tarif_type,
-    label: l.label,
-    prix_unitaire: l.prix_unitaire,
-    unite: l.unite,
-    quantite: l.quantite,
-    total_ligne: totalLigne(l),
-    urgent: l.urgent,
-    position: i,
-  }))
-
-  const { error: lignesError } = await sb.from('lignes_devis').insert(ligneRows)
-  if (lignesError) {
-    // Un accord sans lignes est inutilisable : on l'annule pour éviter un orphelin.
-    await sb.from('accords_intervention').delete().eq('id', accord.id)
-    console.error('[POST /api/accords] insert lignes', lignesError)
-    return NextResponse.json({ error: lignesError.message }, { status: 500 })
-  }
-
-  return NextResponse.json({
-    ok: true,
-    id: accord.id,
-    reference: accord.reference,
-    statut: accord.statut,
-  })
 }

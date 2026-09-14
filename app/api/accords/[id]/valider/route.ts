@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getSupabaseOrNull } from "@/lib/supabase"
+import { dbNotConfiguredResponse, getPrismaOrNull } from "@/lib/db"
+import { uploadBlob } from "@/lib/storage"
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
-
-const BUCKET = 'accords-pdfs'
 
 type Params = { params: { id: string } }
 
@@ -20,8 +19,11 @@ type Body = {
  * (horodatage, IP, user-agent, consentements).
  */
 export async function POST(req: NextRequest, { params }: Params) {
-  const sb = getSupabaseOrNull()
-  if (!sb) return NextResponse.json({ error: 'Supabase non configuré' }, { status: 500 })
+  const prisma = getPrismaOrNull()
+  if (!prisma) {
+    const { error, status } = dbNotConfiguredResponse()
+    return NextResponse.json({ error }, { status })
+  }
 
   const accordId = params.id
   if (!accordId) return NextResponse.json({ error: 'ID accord manquant' }, { status: 400 })
@@ -47,11 +49,10 @@ export async function POST(req: NextRequest, { params }: Params) {
   }
 
   // L'accord doit exister et être encore en brouillon.
-  const { data: accord } = await sb
-    .from('accords_intervention')
-    .select('id, statut')
-    .eq('id', accordId)
-    .maybeSingle()
+  const accord = await prisma.accordIntervention.findUnique({
+    where: { id: accordId },
+    select: { id: true, statut: true },
+  })
   if (!accord) return NextResponse.json({ error: 'Accord introuvable' }, { status: 404 })
   if (accord.statut !== 'BROUILLON') {
     return NextResponse.json(
@@ -70,45 +71,51 @@ export async function POST(req: NextRequest, { params }: Params) {
   }
 
   const ext = m[1] === 'jpeg' ? 'jpg' : 'png'
-  const path = `${accordId}/signature-${Date.now()}.${ext}`
-  const upload = await sb.storage
-    .from(BUCKET)
-    .upload(path, buf, { contentType: `image/${m[1]}`, upsert: true })
-  if (upload.error) {
+  let signatureUrl: string
+  try {
+    signatureUrl = await uploadBlob({
+      pathname: `accords/${accordId}/signature-${Date.now()}.${ext}`,
+      body: buf,
+      contentType: `image/${m[1]}`,
+    })
+  } catch (e) {
     return NextResponse.json(
-      { error: `Upload de la signature échoué : ${upload.error.message}` },
+      { error: `Upload de la signature échoué : ${e instanceof Error ? e.message : 'erreur'}` },
       { status: 502 },
     )
   }
-  const { data: pub } = sb.storage.from(BUCKET).getPublicUrl(path)
-  const signatureUrl = pub?.publicUrl
-  if (!signatureUrl) {
-    return NextResponse.json({ error: 'URL de signature introuvable' }, { status: 500 })
-  }
 
-  const valideAt = new Date().toISOString()
+  const valideAt = new Date()
   const ipClient =
     req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
     req.headers.get('x-real-ip') ||
     null
   const userAgent = req.headers.get('user-agent') || null
 
-  const { error } = await sb
-    .from('accords_intervention')
-    .update({
-      statut: 'VALIDE',
-      valide_at: valideAt,
-      canal_validation: 'SIGNATURE',
-      signature_image: signatureUrl,
-      demande_expresse: true,
-      renonciation_retractation: true,
-      ip_client: ipClient,
-      user_agent: userAgent,
+  try {
+    await prisma.accordIntervention.update({
+      where: { id: accordId },
+      data: {
+        statut: 'VALIDE',
+        valide_at: valideAt,
+        canal_validation: 'SIGNATURE',
+        signature_image: signatureUrl,
+        demande_expresse: true,
+        renonciation_retractation: true,
+        ip_client: ipClient,
+        user_agent: userAgent,
+      },
     })
-    .eq('id', accordId)
-  if (error) {
-    return NextResponse.json({ error: `DB update échouée : ${error.message}` }, { status: 500 })
+  } catch (e) {
+    return NextResponse.json(
+      { error: `DB update échouée : ${e instanceof Error ? e.message : 'erreur'}` },
+      { status: 500 },
+    )
   }
 
-  return NextResponse.json({ ok: true, valide_at: valideAt, signature_url: signatureUrl })
+  return NextResponse.json({
+    ok: true,
+    valide_at: valideAt.toISOString(),
+    signature_url: signatureUrl,
+  })
 }

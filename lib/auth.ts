@@ -1,53 +1,48 @@
 import NextAuth from "next-auth"
 import Credentials from "next-auth/providers/credentials"
 import { verifyCredentials, type DbAccount } from "@/lib/auth-users"
-import { getSupabaseOrNull } from "@/lib/supabase"
+import { getPrismaOrNull } from "@/lib/db"
 
-/**
- * Recherche un compte dans la table `techniciens` par login (insensible à la casse).
- * Source de vérité des comptes gérés depuis l'admin (migration 013).
- */
-async function lookupDbAccountByLogin(login: string): Promise<DbAccount | null> {
-  const sb = getSupabaseOrNull()
-  if (!sb) return null
+export async function lookupDbAccountByLogin(login: string): Promise<DbAccount | null> {
+  const prisma = getPrismaOrNull()
+  if (!prisma) return null
   const needle = login.trim().toLowerCase()
-  const { data } = await sb
-    .from("techniciens")
-    .select("id, login, password_hash, role, actif")
-    .not("login", "is", null)
-  const row = data?.find(t => (t.login || "").trim().toLowerCase() === needle)
+  const rows = await prisma.technicien.findMany({
+    where: { login: { not: null } },
+    select: { id: true, login: true, password_hash: true, role: true, actif: true },
+  })
+  const row = rows.find(t => (t.login || "").trim().toLowerCase() === needle)
   if (!row) return null
   return {
-    technicienId: row.id as string,
+    technicienId: row.id,
     login: row.login as string,
-    passwordHash: (row.password_hash as string) ?? null,
+    passwordHash: row.password_hash ?? null,
     role: (row.role as DbAccount["role"]) ?? "tech",
     actif: row.actif !== false,
   }
 }
 
-/** Marque la dernière connexion réussie (best-effort, n'échoue jamais l'auth). */
-async function touchDerniereConnexion(technicienId: string): Promise<void> {
-  const sb = getSupabaseOrNull()
-  if (!sb) return
+export async function touchDerniereConnexion(technicienId: string): Promise<void> {
+  const prisma = getPrismaOrNull()
+  if (!prisma) return
   try {
-    await sb
-      .from("techniciens")
-      .update({ derniere_connexion: new Date().toISOString() })
-      .eq("id", technicienId)
+    await prisma.technicien.update({
+      where: { id: technicienId },
+      data: { derniere_connexion: new Date() },
+    })
   } catch {
     /* non bloquant */
   }
 }
 
-async function lookupTechnicienIdByLogin(login: string): Promise<string | null> {
-  const sb = getSupabaseOrNull()
-  if (!sb) return null
-  const { data } = await sb
-    .from("techniciens")
-    .select("id, nom")
-    .eq("actif", true)
-  if (!data?.length) return null
+export async function lookupTechnicienIdByLogin(login: string): Promise<string | null> {
+  const prisma = getPrismaOrNull()
+  if (!prisma) return null
+  const data = await prisma.technicien.findMany({
+    where: { actif: true },
+    select: { id: true, nom: true },
+  })
+  if (!data.length) return null
   const aliases: Record<string, string> = {
     technicien1: "technicien 1",
     "technicien-1": "technicien 1",

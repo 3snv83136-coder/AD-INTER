@@ -1,4 +1,6 @@
-import { getSupabaseOrNull, saveDocument, upsertClient } from "@/lib/supabase"
+import { Prisma } from '@prisma/client'
+import { getPrismaOrNull } from '@/lib/db'
+import { saveDocument, upsertClient } from '@/lib/db-helpers'
 import { mergeFacturePayloadMeta } from "@/lib/facture-relance"
 
 /**
@@ -156,8 +158,8 @@ export type PersistRapportResult =
  * Retry jusqu'à 5 fois en cas de collision sur la reference unique.
  */
 export async function persistRapport(p: PersistRapportInput): Promise<PersistRapportResult> {
-  const sb = getSupabaseOrNull()
-  if (!sb) return { ok: false, error: 'Supabase non configuré (SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY manquants côté serveur)' }
+  const prisma = getPrismaOrNull()
+  if (!prisma) return { ok: false, error: 'Base de données non configurée (DATABASE_URL manquante côté serveur)' }
 
   // Postgres `date` exige YYYY-MM-DD strict. Toute autre forme (ex: "5 mai 2026")
   // doit être convertie en null pour ne pas faire échouer l'insert.
@@ -200,10 +202,15 @@ export async function persistRapport(p: PersistRapportInput): Promise<PersistRap
       if (cid) update.client_id = cid
     }
 
-    const { error } = await sb.from('interventions').update(update).eq('id', p.interventionId)
-    if (error) {
+    try {
+      await prisma.intervention.update({
+        where: { id: p.interventionId },
+        data: update as Prisma.InterventionUpdateInput,
+      })
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error)
       console.error('[persistRapport:update]', error)
-      return { ok: false, error: `Update intervention ${p.interventionId} : ${error.message}` }
+      return { ok: false, error: `Update intervention ${p.interventionId} : ${msg}` }
     }
     return { ok: true, id: p.interventionId, mode: 'update' }
   }
@@ -231,21 +238,31 @@ export async function persistRapport(p: PersistRapportInput): Promise<PersistRap
     publie_slug: p.publishedSlug || null,
   }
 
-  const baseRef: string | null = (p.rapport as any)?.reference || null
+  const baseRef: string | null = (p.rapport as { reference?: string })?.reference || null
   let currentRef: string | null = baseRef
   for (let attempt = 0; attempt < 5; attempt++) {
-    const { data, error } = await sb.from('interventions')
-      .insert({ reference: currentRef, ...baseRow })
-      .select('id')
-      .single()
-    if (!error && data?.id) return { ok: true, id: data.id, mode: 'insert' }
-    if (error?.code === '23505' && currentRef) {
-      const suffix = Math.random().toString(36).slice(2, 5).toUpperCase()
-      currentRef = `${baseRef}-${suffix}`
-      continue
+    try {
+      const data = await prisma.intervention.create({
+        data: {
+          reference: currentRef,
+          ...baseRow,
+          rapport_json: baseRow.rapport_json as Prisma.InputJsonValue,
+          seo_json: baseRow.seo_json as Prisma.InputJsonValue | undefined,
+        },
+        select: { id: true },
+      })
+      return { ok: true, id: data.id, mode: 'insert' }
+    } catch (error) {
+      const code = (error as { code?: string })?.code
+      if (code === 'P2002' && currentRef) {
+        const suffix = Math.random().toString(36).slice(2, 5).toUpperCase()
+        currentRef = `${baseRef}-${suffix}`
+        continue
+      }
+      const msg = error instanceof Error ? error.message : String(error)
+      console.error('[persistRapport:insert]', error)
+      return { ok: false, error: msg || 'Erreur insertion intervention' }
     }
-    console.error('[persistRapport:insert]', error)
-    return { ok: false, error: error?.message || 'Erreur insertion intervention' }
   }
   return { ok: false, error: 'Référence en collision après 5 tentatives' }
 }

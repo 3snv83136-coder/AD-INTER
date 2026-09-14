@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
+import { Prisma } from "@prisma/client"
 import { getSessionUser, assertInterventionAccess } from "@/lib/intervention-access"
-import { getSupabaseOrNull } from "@/lib/supabase"
+import { getPrismaOrNull, dbNotConfiguredResponse } from "@/lib/db"
 import { isCanalAcquisition } from "@/lib/canaux"
 import { cascadeDeleteIntervention } from "@/lib/cascadeDelete"
 
@@ -28,12 +29,45 @@ const UPDATABLE = new Set([
 
 const ALLOWED_STATUTS = new Set(['planifiee', 'en_cours', 'terminee', 'annulee'])
 
+function formatDate(d: Date | null | undefined): string | null {
+  return d ? d.toISOString().slice(0, 10) : null
+}
+
+function formatTime(d: Date | null | undefined): string | null {
+  if (!d) return null
+  const hh = String(d.getUTCHours()).padStart(2, '0')
+  const mi = String(d.getUTCMinutes()).padStart(2, '0')
+  return `${hh}:${mi}`
+}
+
+function serializeIntervention(row: Record<string, unknown>) {
+  const out: Record<string, unknown> = { ...row }
+  if (row.date_prevue instanceof Date) out.date_prevue = formatDate(row.date_prevue)
+  if (row.date_realisee instanceof Date) out.date_realisee = formatDate(row.date_realisee)
+  if (row.heure_prevue instanceof Date) out.heure_prevue = formatTime(row.heure_prevue)
+  if (row.heure_debut_reelle instanceof Date) out.heure_debut_reelle = row.heure_debut_reelle.toISOString()
+  if (row.heure_fin_reelle instanceof Date) out.heure_fin_reelle = row.heure_fin_reelle.toISOString()
+  if (row.prix_prevu != null) out.prix_prevu = Number(row.prix_prevu)
+  if (row.created_at instanceof Date) out.created_at = row.created_at.toISOString()
+  if (row.updated_at instanceof Date) out.updated_at = row.updated_at.toISOString()
+  if (row.mail_envoye_at instanceof Date) out.mail_envoye_at = row.mail_envoye_at.toISOString()
+  if (row.sms_envoye_at instanceof Date) out.sms_envoye_at = row.sms_envoye_at.toISOString()
+  if (row.video_rendered_at instanceof Date) out.video_rendered_at = row.video_rendered_at.toISOString()
+  if (row.video_published_at instanceof Date) out.video_published_at = row.video_published_at.toISOString()
+  return out
+}
+
+function parseHeurePrevue(s: string): Date | null {
+  if (!/^\d{2}:\d{2}/.test(s)) return null
+  const [hh, mi] = s.slice(0, 5).split(':').map(Number)
+  return new Date(Date.UTC(1970, 0, 1, hh, mi, 0))
+}
+
 export async function GET(_req: NextRequest, { params }: Params) {
-  const sb = getSupabaseOrNull()
-  if (!sb) {
-    return NextResponse.json({
-      error: 'Supabase non configuré (SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY manquants)',
-    }, { status: 500 })
+  const prisma = getPrismaOrNull()
+  if (!prisma) {
+    const { error, status } = dbNotConfiguredResponse()
+    return NextResponse.json({ error }, { status })
   }
 
   const id = params.id
@@ -43,57 +77,48 @@ export async function GET(_req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: access.error }, { status: access.status })
   }
 
-  const { data: intervention, error } = await sb
-    .from('interventions')
-    .select('*')
-    .eq('id', id)
-    .maybeSingle()
+  try {
+    const intervention = await prisma.intervention.findUnique({ where: { id } })
+    if (!intervention) return NextResponse.json({ error: 'Intervention introuvable' }, { status: 404 })
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  if (!intervention) return NextResponse.json({ error: 'Intervention introuvable' }, { status: 404 })
+    let client = null
+    if (intervention.client_id) {
+      client = await prisma.client.findUnique({
+        where: { id: intervention.client_id },
+        select: { id: true, nom: true, email: true, telephone: true, adresse: true, code_postal: true, ville: true },
+      })
+    }
 
-  let client = null
-  if (intervention.client_id) {
-    const { data: c } = await sb
-      .from('clients')
-      .select('id, nom, email, telephone, adresse, code_postal, ville')
-      .eq('id', intervention.client_id)
-      .maybeSingle()
-    client = c || null
+    let technicien = null
+    if (intervention.technicien_id) {
+      technicien = await prisma.technicien.findUnique({
+        where: { id: intervention.technicien_id },
+        select: { id: true, nom: true, email: true, telephone: true, agence: true },
+      })
+    }
+
+    const devisDoc = await prisma.document.findFirst({
+      where: { intervention_id: id, type: 'devis' },
+      select: { id: true },
+    })
+
+    return NextResponse.json({
+      intervention: serializeIntervention(intervention as unknown as Record<string, unknown>),
+      client,
+      technicien,
+      has_devis: !!devisDoc?.id,
+    })
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Erreur base de données'
+    return NextResponse.json({ error: msg }, { status: 500 })
   }
-
-  let technicien = null
-  if (intervention.technicien_id) {
-    const { data: t } = await sb
-      .from('techniciens')
-      .select('id, nom, email, telephone, agence')
-      .eq('id', intervention.technicien_id)
-      .maybeSingle()
-    technicien = t || null
-  }
-
-  const { data: devisDoc } = await sb
-    .from('documents')
-    .select('id')
-    .eq('intervention_id', id)
-    .eq('type', 'devis')
-    .limit(1)
-    .maybeSingle()
-
-  return NextResponse.json({
-    intervention,
-    client,
-    technicien,
-    has_devis: !!devisDoc?.id,
-  })
 }
 
 export async function PUT(req: NextRequest, { params }: Params) {
-  const sb = getSupabaseOrNull()
-  if (!sb) {
-    return NextResponse.json({
-      error: 'Supabase non configuré (SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY manquants)',
-    }, { status: 500 })
+  const prisma = getPrismaOrNull()
+  if (!prisma) {
+    const { error, status } = dbNotConfiguredResponse()
+    return NextResponse.json({ error }, { status })
   }
 
   const user = await getSessionUser()
@@ -109,28 +134,33 @@ export async function PUT(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'JSON invalide' }, { status: 400 })
   }
 
-  // Champs texte : trim + '' → null. Évite de stocker des chaînes vides et
-  // qu'un PUT partiel mal formé n'écrase une colonne avec du vide brut. Les
-  // autres champs (statut, ids, nombres, urgence) passent tels quels.
   const TEXT_FIELDS = new Set([
     'agence', 'type_intervention', 'adresse_chantier', 'ville', 'code_postal',
     'date_prevue', 'heure_prevue', 'notes_internes', 'date_realisee',
   ])
-  const update: Record<string, unknown> = {}
+  const update: Prisma.InterventionUpdateInput = {}
   for (const [k, v] of Object.entries(body)) {
     if (!UPDATABLE.has(k) || v === undefined) continue
     if (typeof v === 'string' && TEXT_FIELDS.has(k)) {
       const trimmed = v.trim()
-      update[k] = trimmed === '' ? null : trimmed
+      if (k === 'date_prevue' || k === 'date_realisee') {
+        update[k] = trimmed === '' ? null : ( /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? new Date(trimmed) : null )
+      } else if (k === 'heure_prevue') {
+        update.heure_prevue = trimmed === '' ? null : parseHeurePrevue(trimmed)
+      } else {
+        (update as Record<string, unknown>)[k] = trimmed === '' ? null : trimmed
+      }
+    } else if (k === 'prix_prevu' && typeof v === 'number') {
+      update.prix_prevu = v
     } else {
-      update[k] = v
+      (update as Record<string, unknown>)[k] = v
     }
   }
 
   if (user?.role === 'tech') {
     const techAllowed = new Set(['statut'])
     for (const k of Object.keys(update)) {
-      if (!techAllowed.has(k)) delete update[k]
+      if (!techAllowed.has(k)) delete (update as Record<string, unknown>)[k]
     }
   }
 
@@ -143,44 +173,37 @@ export async function PUT(req: NextRequest, { params }: Params) {
     update.canal_acquisition = (v === null || v === '') ? null : (isCanalAcquisition(v) ? v : null)
   }
 
-  // Auto-set date_realisee when moving to terminee
   if (update.statut === 'terminee' && !('date_realisee' in update)) {
-    update.date_realisee = new Date().toISOString().slice(0, 10)
-  }
-
-  if (typeof update.heure_prevue === 'string' && /^\d{2}:\d{2}/.test(update.heure_prevue)) {
-    update.heure_prevue = (update.heure_prevue as string).slice(0, 5)
+    update.date_realisee = new Date(new Date().toISOString().slice(0, 10))
   }
 
   if (Object.keys(update).length === 0) {
     return NextResponse.json({ error: 'Aucun champ à mettre à jour' }, { status: 400 })
   }
 
-  const { data, error } = await sb
-    .from('interventions')
-    .update(update)
-    .eq('id', params.id)
-    .select('*')
-    .single()
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ intervention: data })
+  try {
+    const data = await prisma.intervention.update({
+      where: { id: params.id },
+      data: update,
+    })
+    return NextResponse.json({ intervention: serializeIntervention(data as unknown as Record<string, unknown>) })
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Erreur base de données'
+    return NextResponse.json({ error: msg }, { status: 500 })
+  }
 }
 
 export async function DELETE(req: NextRequest, { params }: Params) {
-  const sb = getSupabaseOrNull()
-  if (!sb) {
-    return NextResponse.json({
-      error: 'Supabase non configuré (SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY manquants)',
-    }, { status: 500 })
+  const prisma = getPrismaOrNull()
+  if (!prisma) {
+    const { error, status } = dbNotConfiguredResponse()
+    return NextResponse.json({ error }, { status })
   }
 
   const url = new URL(req.url)
   const hard = url.searchParams.get('hard') === '1'
 
   if (hard) {
-    // Suppression définitive en cascade : intervention + documents liés + photos
-    // + PDFs Storage. Préférence utilisateur explicite (UI "Tout effacer").
     const result = await cascadeDeleteIntervention(params.id)
     if (!result.ok) {
       return NextResponse.json({
@@ -199,14 +222,17 @@ export async function DELETE(req: NextRequest, { params }: Params) {
     })
   }
 
-  // Soft delete : statut=annulee (par défaut, préserve l'historique)
-  const { data, error } = await sb
-    .from('interventions')
-    .update({ statut: 'annulee' })
-    .eq('id', params.id)
-    .select('*')
-    .single()
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ intervention: data, soft: true })
+  try {
+    const data = await prisma.intervention.update({
+      where: { id: params.id },
+      data: { statut: 'annulee' },
+    })
+    return NextResponse.json({
+      intervention: serializeIntervention(data as unknown as Record<string, unknown>),
+      soft: true,
+    })
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Erreur base de données'
+    return NextResponse.json({ error: msg }, { status: 500 })
+  }
 }

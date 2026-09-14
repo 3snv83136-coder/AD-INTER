@@ -1,16 +1,14 @@
-import { NextRequest, NextResponse } from "next/server"
-import bcrypt from "bcryptjs"
-import { auth } from "@/lib/auth"
-import { getSupabaseOrNull } from "@/lib/supabase"
+import { NextRequest, NextResponse } from 'next/server'
+import { Prisma } from '@prisma/client'
+import bcrypt from 'bcryptjs'
+import { auth } from '@/lib/auth'
+import { dbNotConfiguredResponse, getPrismaOrNull } from '@/lib/db'
 
 export const dynamic = 'force-dynamic'
 
-const UPDATABLE = new Set(['nom', 'email', 'telephone', 'agence', 'actif'])
 const ROLES = new Set(['tech', 'admin'])
 
-/** Garde admin : seul un compte admin peut gérer les comptes techniciens. */
 async function requireAdmin(): Promise<NextResponse | null> {
-  // Si l'auth n'est pas configurée du tout (dev), on laisse passer.
   if (!process.env.AUTH_USER_1 && !process.env.AUTH_TECH_1) return null
   const session = await auth()
   if (session?.user?.role !== 'admin') {
@@ -25,44 +23,71 @@ function normalizeLogin(raw: unknown): string | null {
   return v || null
 }
 
-function supabaseMissing(): NextResponse {
-  return NextResponse.json({
-    error: 'Supabase non configuré (SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY manquants)',
-    techniciens: [],
-  }, { status: 500 })
+function dbMissing(): NextResponse {
+  const err = dbNotConfiguredResponse()
+  return NextResponse.json({ error: err.error, techniciens: [] }, { status: err.status })
+}
+
+const selectFields = {
+  id: true,
+  nom: true,
+  email: true,
+  telephone: true,
+  agence: true,
+  actif: true,
+  role: true,
+  login: true,
+  password_hash: true,
+  doit_changer_mdp: true,
+  derniere_connexion: true,
+  created_at: true,
+} as const
+
+function serializeTechnicien(row: {
+  id: string
+  nom: string
+  email: string | null
+  telephone: string | null
+  agence: string | null
+  actif: boolean
+  role: string
+  login: string | null
+  password_hash: string | null
+  doit_changer_mdp: boolean
+  derniere_connexion: Date | null
+  created_at: Date
+}) {
+  const { password_hash, ...t } = row
+  return {
+    ...t,
+    has_password: Boolean(password_hash),
+    derniere_connexion: t.derniere_connexion?.toISOString() ?? null,
+    created_at: t.created_at.toISOString(),
+  }
 }
 
 export async function GET(req: NextRequest) {
-  const sb = getSupabaseOrNull()
-  if (!sb) return supabaseMissing()
+  const prisma = getPrismaOrNull()
+  if (!prisma) return dbMissing()
 
   const url = new URL(req.url)
   const all = url.searchParams.get('all') === '1'
 
-  let query = sb
-    .from('techniciens')
-    // password_hash JAMAIS renvoyé au client — on expose seulement has_password.
-    .select('id, nom, email, telephone, agence, actif, role, login, password_hash, doit_changer_mdp, derniere_connexion, created_at')
-    .order('nom', { ascending: true })
+  const data = await prisma.technicien.findMany({
+    where: all ? undefined : { actif: true },
+    select: selectFields,
+    orderBy: { nom: 'asc' },
+  })
 
-  if (!all) query = query.eq('actif', true)
-
-  const { data, error } = await query
-  if (error) return NextResponse.json({ error: error.message, techniciens: [] }, { status: 500 })
-
-  const techniciens = (data || []).map(({ password_hash, ...t }) => ({
-    ...t,
-    has_password: Boolean(password_hash),
-  }))
-  return NextResponse.json({ techniciens })
+  return NextResponse.json({ techniciens: data.map(serializeTechnicien) })
 }
 
 export async function POST(req: NextRequest) {
   const denied = await requireAdmin()
   if (denied) return denied
 
-  const sb = getSupabaseOrNull()
-  if (!sb) return supabaseMissing()
+  const prisma = getPrismaOrNull()
+  if (!prisma) return dbMissing()
 
   let body: Record<string, unknown>
   try {
@@ -78,12 +103,11 @@ export async function POST(req: NextRequest) {
   const role = ROLES.has(String(body.role)) ? String(body.role) : 'tech'
   const password = typeof body.password === 'string' ? body.password : ''
 
-  // Un compte avec login doit avoir un mot de passe (sinon connexion impossible).
   if (login && !password) {
     return NextResponse.json({ error: 'Mot de passe requis pour un compte avec identifiant' }, { status: 400 })
   }
 
-  const insert: Record<string, unknown> = {
+  const insert: Prisma.TechnicienCreateInput = {
     nom,
     email: typeof body.email === 'string' ? body.email.trim() || null : null,
     telephone: typeof body.telephone === 'string' ? body.telephone.trim() || null : null,
@@ -97,27 +121,45 @@ export async function POST(req: NextRequest) {
     insert.doit_changer_mdp = true
   }
 
-  const { data, error } = await sb
-    .from('techniciens')
-    .insert(insert)
-    .select('id, nom, email, telephone, agence, actif, role, login, doit_changer_mdp, derniere_connexion, created_at')
-    .single()
-
-  if (error) {
-    const msg = /duplicate|unique/i.test(error.message)
+  try {
+    const data = await prisma.technicien.create({
+      data: insert,
+      select: {
+        id: true,
+        nom: true,
+        email: true,
+        telephone: true,
+        agence: true,
+        actif: true,
+        role: true,
+        login: true,
+        doit_changer_mdp: true,
+        derniere_connexion: true,
+        created_at: true,
+      },
+    })
+    return NextResponse.json({
+      technicien: {
+        ...data,
+        has_password: Boolean(login && password),
+        derniere_connexion: data.derniere_connexion?.toISOString() ?? null,
+        created_at: data.created_at.toISOString(),
+      },
+    }, { status: 201 })
+  } catch (e) {
+    const msg = e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002'
       ? 'Cet identifiant est déjà utilisé'
-      : error.message
+      : e instanceof Error ? e.message : 'Erreur création'
     return NextResponse.json({ error: msg }, { status: 400 })
   }
-  return NextResponse.json({ technicien: data }, { status: 201 })
 }
 
 export async function PUT(req: NextRequest) {
   const denied = await requireAdmin()
   if (denied) return denied
 
-  const sb = getSupabaseOrNull()
-  if (!sb) return supabaseMissing()
+  const prisma = getPrismaOrNull()
+  if (!prisma) return dbMissing()
 
   let body: Record<string, unknown>
   try {
@@ -129,17 +171,15 @@ export async function PUT(req: NextRequest) {
   const id = typeof body.id === 'string' ? body.id : ''
   if (!id) return NextResponse.json({ error: 'id requis' }, { status: 400 })
 
-  const update: Record<string, unknown> = {}
-  for (const [k, v] of Object.entries(body)) {
-    if (!UPDATABLE.has(k)) continue
-    update[k] = v
-  }
+  const update: Prisma.TechnicienUpdateInput = {}
+  if (typeof body.nom === 'string') update.nom = body.nom.trim()
+  if (typeof body.email === 'string') update.email = body.email.trim() || null
+  if (typeof body.telephone === 'string') update.telephone = body.telephone.trim() || null
+  if (typeof body.agence === 'string') update.agence = body.agence.trim() || null
+  if (typeof body.actif === 'boolean') update.actif = body.actif
 
-  // Identifiant de connexion
   if ('login' in body) update.login = normalizeLogin(body.login)
-  // Rôle
   if (typeof body.role === 'string' && ROLES.has(body.role)) update.role = body.role
-  // Réinitialisation du mot de passe (force le changement à la prochaine connexion)
   if (typeof body.password === 'string' && body.password) {
     update.password_hash = await bcrypt.hash(body.password, 10)
     update.doit_changer_mdp = true
@@ -149,18 +189,36 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: 'Aucun champ à mettre à jour' }, { status: 400 })
   }
 
-  const { data, error } = await sb
-    .from('techniciens')
-    .update(update)
-    .eq('id', id)
-    .select('id, nom, email, telephone, agence, actif, role, login, doit_changer_mdp, derniere_connexion, created_at')
-    .single()
-
-  if (error) {
-    const msg = /duplicate|unique/i.test(error.message)
+  try {
+    const data = await prisma.technicien.update({
+      where: { id },
+      data: update,
+      select: {
+        id: true,
+        nom: true,
+        email: true,
+        telephone: true,
+        agence: true,
+        actif: true,
+        role: true,
+        login: true,
+        doit_changer_mdp: true,
+        derniere_connexion: true,
+        created_at: true,
+      },
+    })
+    return NextResponse.json({
+      technicien: {
+        ...data,
+        has_password: true,
+        derniere_connexion: data.derniere_connexion?.toISOString() ?? null,
+        created_at: data.created_at.toISOString(),
+      },
+    })
+  } catch (e) {
+    const msg = e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002'
       ? 'Cet identifiant est déjà utilisé'
-      : error.message
+      : e instanceof Error ? e.message : 'Erreur mise à jour'
     return NextResponse.json({ error: msg }, { status: 400 })
   }
-  return NextResponse.json({ technicien: data })
 }

@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-import type { Tarif } from "@/lib/supabase"
+import type { Tarif } from "@/lib/types"
 import { calculDevis } from "@/lib/accord/calcul-devis"
 import { savePendingAccord, type AccordCreatePayload } from "@/lib/accord/offline-store"
 import { fmtEUR } from "@/lib/format"

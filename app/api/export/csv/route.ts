@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server"
-import { getSupabaseOrNull } from "@/lib/supabase"
+import { NextRequest, NextResponse } from 'next/server'
+import { dbNotConfiguredResponse, getPrismaOrNull } from '@/lib/db'
 
 export const dynamic = 'force-dynamic'
 
@@ -8,9 +8,7 @@ const SEP = ';'
 function csvCell(value: unknown): string {
   if (value === null || value === undefined) return ''
   let s = typeof value === 'string' ? value : String(value)
-  // Excel friendly : remplace les retours ligne par espace
   s = s.replace(/\r?\n/g, ' ')
-  // Quote si nécessaire
   if (s.includes(SEP) || s.includes('"') || s.includes('\n')) {
     s = '"' + s.replace(/"/g, '""') + '"'
   }
@@ -32,6 +30,10 @@ function fmtDate(iso: string | null | undefined): string {
   return m ? `${m[3]}/${m[2]}/${m[1]}` : iso
 }
 
+function isoDate(d: Date): string {
+  return d.toISOString().slice(0, 10)
+}
+
 function buildFilename(type: string, from: string | null, to: string | null): string {
   const f = from || ''
   const t = to || ''
@@ -39,11 +41,10 @@ function buildFilename(type: string, from: string | null, to: string | null): st
 }
 
 export async function GET(req: NextRequest) {
-  const sb = getSupabaseOrNull()
-  if (!sb) {
-    return NextResponse.json({
-      error: 'Supabase non configuré (SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY manquants)',
-    }, { status: 500 })
+  const prisma = getPrismaOrNull()
+  if (!prisma) {
+    const err = dbNotConfiguredResponse()
+    return NextResponse.json({ error: err.error }, { status: err.status })
   }
 
   const url = new URL(req.url)
@@ -57,38 +58,52 @@ export async function GET(req: NextRequest) {
 
   const BOM = '﻿'
   let csv = BOM
-  let filename = buildFilename(type, from, to)
+  const filename = buildFilename(type, from, to)
 
   if (type === 'recettes') {
-    let q = sb
-      .from('documents')
-      .select('id, numero, date_emission, statut, montant_ht, montant_ttc, tva_taux, agence, client_id')
-      .eq('type', 'facture')
-      .order('date_emission', { ascending: false })
-    if (from) q = q.gte('date_emission', from)
-    if (to) q = q.lte('date_emission', to)
+    const rows = await prisma.document.findMany({
+      where: {
+        type: 'facture',
+        ...(from || to
+          ? {
+              date_emission: {
+                ...(from ? { gte: new Date(from) } : {}),
+                ...(to ? { lte: new Date(to) } : {}),
+              },
+            }
+          : {}),
+      },
+      select: {
+        id: true,
+        numero: true,
+        date_emission: true,
+        statut: true,
+        montant_ht: true,
+        montant_ttc: true,
+        tva_taux: true,
+        agence: true,
+        client_id: true,
+      },
+      orderBy: { date_emission: 'desc' },
+    })
 
-    const { data, error } = await q
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
-    const rows = data || []
-
-    // Charge clients
     const clientIds = Array.from(new Set(rows.map(r => r.client_id).filter((v): v is string => !!v)))
     let clientsMap: Record<string, string> = {}
     if (clientIds.length > 0) {
-      const { data: cls } = await sb.from('clients').select('id, nom').in('id', clientIds)
-      if (cls) clientsMap = Object.fromEntries(cls.map(c => [c.id as string, (c.nom as string) || '']))
+      const cls = await prisma.client.findMany({
+        where: { id: { in: clientIds } },
+        select: { id: true, nom: true },
+      })
+      clientsMap = Object.fromEntries(cls.map(c => [c.id, c.nom || '']))
     }
 
     csv += csvLine(['Date', 'N°', 'Client', 'Agence', 'HT', 'TVA', 'TTC', 'Statut']) + '\r\n'
     for (const r of rows) {
-      const ht = typeof r.montant_ht === 'number' ? r.montant_ht : 0
-      const ttc = typeof r.montant_ttc === 'number' ? r.montant_ttc : 0
+      const ht = r.montant_ht != null ? Number(r.montant_ht) : 0
+      const ttc = r.montant_ttc != null ? Number(r.montant_ttc) : 0
       const tva = ttc - ht
       csv += csvLine([
-        fmtDate(r.date_emission),
+        fmtDate(isoDate(r.date_emission)),
         r.numero || '',
         r.client_id ? (clientsMap[r.client_id] || '') : '',
         r.agence || '',
@@ -99,29 +114,42 @@ export async function GET(req: NextRequest) {
       ]) + '\r\n'
     }
   } else {
-    let q = sb
-      .from('factures_fournisseurs')
-      .select('id, fournisseur, numero, date_facture, montant_ht, tva, montant_ttc, categorie, description, agence')
-      .order('date_facture', { ascending: false })
-    if (from) q = q.gte('date_facture', from)
-    if (to) q = q.lte('date_facture', to)
-
-    const { data, error } = await q
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
-    const rows = data || []
+    const rows = await prisma.factureFournisseur.findMany({
+      where: {
+        ...(from || to
+          ? {
+              date_facture: {
+                ...(from ? { gte: new Date(from) } : {}),
+                ...(to ? { lte: new Date(to) } : {}),
+              },
+            }
+          : {}),
+      },
+      select: {
+        id: true,
+        fournisseur: true,
+        numero: true,
+        date_facture: true,
+        montant_ht: true,
+        tva: true,
+        montant_ttc: true,
+        categorie: true,
+        description: true,
+        agence: true,
+      },
+      orderBy: { date_facture: 'desc' },
+    })
 
     csv += csvLine(['Date', 'Fournisseur', 'N°', 'Catégorie', 'HT', 'TVA', 'TTC', 'Agence', 'Description']) + '\r\n'
     for (const r of rows) {
       csv += csvLine([
-        fmtDate(r.date_facture),
+        fmtDate(isoDate(r.date_facture)),
         r.fournisseur || '',
         r.numero || '',
         r.categorie || '',
-        fmtMontant(r.montant_ht),
-        fmtMontant(r.tva),
-        fmtMontant(r.montant_ttc),
+        fmtMontant(Number(r.montant_ht)),
+        fmtMontant(Number(r.tva)),
+        fmtMontant(Number(r.montant_ttc)),
         r.agence || '',
         r.description || '',
       ]) + '\r\n'

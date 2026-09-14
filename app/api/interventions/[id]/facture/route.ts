@@ -1,35 +1,40 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getSupabaseOrNull } from "@/lib/supabase"
+import { getPrismaOrNull, dbNotConfiguredResponse } from "@/lib/db"
 
 export const dynamic = 'force-dynamic'
 
 type Params = { params: { id: string } }
 
-/**
- * Retourne la dernière facture liée à cette intervention (avec son payload complet).
- * Utilisé par le wizard Mode Terrain à l'étape d'envoi pour générer le PDF.
- *
- * GET /api/interventions/[id]/facture
- *   → { facture: { id, numero, montant_ht, montant_ttc, tva_taux, pdf_url, payload } | null }
- */
 export async function GET(_req: NextRequest, { params }: Params) {
-  const sb = getSupabaseOrNull()
-  if (!sb) return NextResponse.json({ error: 'Supabase non configuré' }, { status: 500 })
+  const prisma = getPrismaOrNull()
+  if (!prisma) {
+    const { error, status } = dbNotConfiguredResponse()
+    return NextResponse.json({ error }, { status })
+  }
 
-  // range(0, 0) au lieu de limit(1) : avec limit + order + select large
-  // (payload jsonb), PostgREST/supabase-js drop silencieusement la ligne la
-  // plus récente (bug déjà documenté dans ce projet, cf. /api/historique).
-  // Sur une intervention avec UNE seule facture → 0 résultat → "Facture
-  // introuvable" à l'étape d'envoi du wizard. range() passe par le header
-  // Range et n'est pas affecté.
-  const { data, error } = await sb
-    .from('documents')
-    .select('id, numero, montant_ht, montant_ttc, tva_taux, pdf_url, payload, agence, date_emission, echeance, statut')
-    .eq('intervention_id', params.id)
-    .eq('type', 'facture')
-    .order('created_at', { ascending: false })
-    .range(0, 0)
+  try {
+    const facture = await prisma.document.findFirst({
+      where: { intervention_id: params.id, type: 'facture' },
+      orderBy: { created_at: 'desc' },
+      select: {
+        id: true, numero: true, montant_ht: true, montant_ttc: true, tva_taux: true,
+        pdf_url: true, payload: true, agence: true, date_emission: true, echeance: true, statut: true,
+      },
+    })
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ facture: data?.[0] || null })
+    if (!facture) return NextResponse.json({ facture: null })
+
+    return NextResponse.json({
+      facture: {
+        ...facture,
+        montant_ht: facture.montant_ht != null ? Number(facture.montant_ht) : null,
+        montant_ttc: facture.montant_ttc != null ? Number(facture.montant_ttc) : null,
+        tva_taux: facture.tva_taux != null ? Number(facture.tva_taux) : null,
+        date_emission: facture.date_emission.toISOString().slice(0, 10),
+      },
+    })
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Erreur base de données'
+    return NextResponse.json({ error: msg }, { status: 500 })
+  }
 }

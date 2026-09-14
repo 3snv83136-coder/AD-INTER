@@ -1,17 +1,17 @@
-import { NextRequest, NextResponse } from "next/server"
-import { escapeHtml, initResend } from "@/lib/email-utils"
-import { fmtEUR } from "@/lib/format"
-import { upsertPreBilan, type PreBilanSnapshot } from "@/lib/compta-pre-bilan"
-import { periodeLabel } from "@/lib/compta-kpis"
-import { getEmailComptable, getTelPrincipal } from "@/lib/parametres"
-import { getSupabaseOrNull } from "@/lib/supabase"
+import { NextRequest, NextResponse } from 'next/server'
+import { escapeHtml, initResend } from '@/lib/email-utils'
+import { fmtEUR } from '@/lib/format'
+import { upsertPreBilan, type PreBilanSnapshot } from '@/lib/compta-pre-bilan'
+import { periodeLabel } from '@/lib/compta-kpis'
+import { getEmailComptable, getTelPrincipal } from '@/lib/parametres'
+import { dbNotConfiguredResponse, getPrismaOrNull } from '@/lib/db'
 
-export const dynamic = "force-dynamic"
+export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
 function emailPreBilan(snapshot: PreBilanSnapshot, tel: string, appUrl: string): string {
   const k = snapshot.kpis
-  const alertes = snapshot.alertes.map(a => `<li>${escapeHtml(a)}</li>`).join("")
+  const alertes = snapshot.alertes.map(a => `<li>${escapeHtml(a)}</li>`).join('')
   return `<!doctype html>
 <html><body style="margin:0;padding:0;font-family:Arial,sans-serif;background:#f4f6fa">
 <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f6fa;padding:30px 0">
@@ -44,8 +44,11 @@ ${alertes ? `<p style="color:#b45309"><strong>Points d'attention :</strong></p><
 }
 
 export async function POST(req: NextRequest) {
-  const sb = getSupabaseOrNull()
-  if (!sb) return NextResponse.json({ error: "Supabase non configuré" }, { status: 500 })
+  const prisma = getPrismaOrNull()
+  if (!prisma) {
+    const err = dbNotConfiguredResponse()
+    return NextResponse.json({ error: err.error }, { status: err.status })
+  }
 
   let body: { annee?: number; mois?: number; email?: string }
   try {
@@ -57,47 +60,46 @@ export async function POST(req: NextRequest) {
   const annee = body.annee
   const mois = body.mois
   if (!annee || !mois) {
-    return NextResponse.json({ error: "annee et mois requis" }, { status: 400 })
+    return NextResponse.json({ error: 'annee et mois requis' }, { status: 400 })
   }
 
   const comptableEmail = (body.email || await getEmailComptable()).trim()
   if (!comptableEmail) {
     return NextResponse.json({
-      error: "Email comptable manquant. Renseignez EMAIL_COMPTABLE dans Paramètres ou passez email dans la requête.",
+      error: 'Email comptable manquant. Renseignez EMAIL_COMPTABLE dans Paramètres ou passez email dans la requête.',
     }, { status: 400 })
   }
 
-  const { id, snapshot } = await upsertPreBilan(sb, annee, mois)
+  const { id, snapshot } = await upsertPreBilan(annee, mois)
 
   const ctx = initResend(comptableEmail)
-  if ("error" in ctx) return NextResponse.json({ error: ctx.error }, { status: ctx.status })
+  if ('error' in ctx) return NextResponse.json({ error: ctx.error }, { status: ctx.status })
 
   const tel = await getTelPrincipal()
   const appUrl = process.env.APP_BASE_URL
     || process.env.NEXTAUTH_URL
-    || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "https://app-allo-debouchage.vercel.app")
+    || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://app-allo-debouchage.vercel.app')
 
   const sent = await ctx.resend.emails.send({
     from: `Allo Débouchage <${ctx.fromEmail}>`,
     to: ctx.recipient,
     subject: `Pré-bilan ${periodeLabel(annee, mois)} — validation comptable Allo Débouchage`,
-    html: emailPreBilan(snapshot, tel, appUrl.replace(/\/+$/, "")),
+    html: emailPreBilan(snapshot, tel, appUrl.replace(/\/+$/, '')),
   })
 
   if (sent.error) {
-    return NextResponse.json({ error: sent.error.message || "Envoi email échoué" }, { status: 500 })
+    return NextResponse.json({ error: sent.error.message || 'Envoi email échoué' }, { status: 500 })
   }
 
-  const now = new Date().toISOString()
-  await sb
-    .from("pre_bilans")
-    .update({
-      statut: "envoye",
+  const now = new Date()
+  await prisma.preBilan.update({
+    where: { id },
+    data: {
+      statut: 'envoye',
       comptable_email: comptableEmail,
       envoye_at: now,
-      updated_at: now,
-    })
-    .eq("id", id)
+    },
+  })
 
   return NextResponse.json({ ok: true, pre_bilan_id: id, email_id: sent.data?.id })
 }

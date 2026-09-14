@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server"
-import { getSupabaseOrNull } from "@/lib/supabase"
+import { NextRequest, NextResponse } from 'next/server'
+import { dbNotConfiguredResponse, getPrismaOrNull } from '@/lib/db'
 
 export const dynamic = 'force-dynamic'
 
@@ -34,9 +34,12 @@ function fmtDateYYYYMMDD(iso: string | null | undefined): string {
   return m ? `${m[1]}${m[2]}${m[3]}` : ''
 }
 
+function isoDate(d: Date): string {
+  return d.toISOString().slice(0, 10)
+}
+
 function safe(s: string | null | undefined): string {
   if (!s) return ''
-  // Norme FEC : pas de tab ni de retour ligne dans les valeurs
   return s.replace(/[\t\r\n]+/g, ' ').trim()
 }
 
@@ -46,76 +49,97 @@ function fecLine(cells: (string | number)[]): string {
 
 function compAuxNum(id: string | null | undefined): string {
   if (!id) return ''
-  // Tronque l'UUID pour fournir un code aux numérique-alphanum court
   return id.replace(/-/g, '').slice(0, 12).toUpperCase()
 }
 
 export async function GET(req: NextRequest) {
-  const sb = getSupabaseOrNull()
-  if (!sb) {
-    return NextResponse.json({
-      error: 'Supabase non configuré (SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY manquants)',
-    }, { status: 500 })
+  const prisma = getPrismaOrNull()
+  if (!prisma) {
+    const err = dbNotConfiguredResponse()
+    return NextResponse.json({ error: err.error }, { status: err.status })
   }
 
   const url = new URL(req.url)
   const from = url.searchParams.get('from') || ''
   const to = url.searchParams.get('to') || ''
 
-  // Charge factures clients
-  let qVentes = sb
-    .from('documents')
-    .select('id, numero, date_emission, statut, montant_ht, montant_ttc, tva_taux, agence, client_id')
-    .eq('type', 'facture')
-    .order('date_emission', { ascending: true })
-  if (from) qVentes = qVentes.gte('date_emission', from)
-  if (to) qVentes = qVentes.lte('date_emission', to)
+  const [ventes, achats] = await Promise.all([
+    prisma.document.findMany({
+      where: {
+        type: 'facture',
+        ...(from || to
+          ? {
+              date_emission: {
+                ...(from ? { gte: new Date(from) } : {}),
+                ...(to ? { lte: new Date(to) } : {}),
+              },
+            }
+          : {}),
+      },
+      select: {
+        id: true,
+        numero: true,
+        date_emission: true,
+        statut: true,
+        montant_ht: true,
+        montant_ttc: true,
+        tva_taux: true,
+        agence: true,
+        client_id: true,
+      },
+      orderBy: { date_emission: 'asc' },
+    }),
+    prisma.factureFournisseur.findMany({
+      where: {
+        ...(from || to
+          ? {
+              date_facture: {
+                ...(from ? { gte: new Date(from) } : {}),
+                ...(to ? { lte: new Date(to) } : {}),
+              },
+            }
+          : {}),
+      },
+      select: {
+        id: true,
+        fournisseur: true,
+        numero: true,
+        date_facture: true,
+        montant_ht: true,
+        tva: true,
+        montant_ttc: true,
+        categorie: true,
+        agence: true,
+      },
+      orderBy: { date_facture: 'asc' },
+    }),
+  ])
 
-  // Charge factures fournisseurs
-  let qAchats = sb
-    .from('factures_fournisseurs')
-    .select('id, fournisseur, numero, date_facture, montant_ht, tva, montant_ttc, categorie, agence')
-    .order('date_facture', { ascending: true })
-  if (from) qAchats = qAchats.gte('date_facture', from)
-  if (to) qAchats = qAchats.lte('date_facture', to)
-
-  const [ventesRes, achatsRes] = await Promise.all([qVentes, qAchats])
-  if (ventesRes.error) {
-    return NextResponse.json({ error: ventesRes.error.message }, { status: 500 })
-  }
-  if (achatsRes.error) {
-    return NextResponse.json({ error: achatsRes.error.message }, { status: 500 })
-  }
-
-  const ventes = ventesRes.data || []
-  const achats = achatsRes.data || []
-
-  // Charge noms clients
   const clientIds = Array.from(new Set(ventes.map(v => v.client_id).filter((x): x is string => !!x)))
   let clientsMap: Record<string, string> = {}
   if (clientIds.length > 0) {
-    const { data: cls } = await sb.from('clients').select('id, nom').in('id', clientIds)
-    if (cls) clientsMap = Object.fromEntries(cls.map(c => [c.id as string, (c.nom as string) || '']))
+    const cls = await prisma.client.findMany({
+      where: { id: { in: clientIds } },
+      select: { id: true, nom: true },
+    })
+    clientsMap = Object.fromEntries(cls.map(c => [c.id, c.nom || '']))
   }
 
-  // Construit le FEC
   let body = FEC_HEADERS.join(TAB) + EOL
 
-  // Journal des ventes
   let numVE = 0
   for (const v of ventes) {
     numVE += 1
-    const ht = typeof v.montant_ht === 'number' ? v.montant_ht : 0
-    const ttc = typeof v.montant_ttc === 'number' ? v.montant_ttc : 0
+    const ht = v.montant_ht != null ? Number(v.montant_ht) : 0
+    const ttc = v.montant_ttc != null ? Number(v.montant_ttc) : 0
     const tva = Math.max(0, ttc - ht)
-    const dateY = fmtDateYYYYMMDD(v.date_emission)
+    const dateY = fmtDateYYYYMMDD(isoDate(v.date_emission))
     const clientNom = v.client_id ? (clientsMap[v.client_id] || '') : ''
     const lib = safe(`Facture ${clientNom} ${v.numero || ''}`.trim())
     const pieceRef = safe(v.numero || v.id)
     const auxNum = compAuxNum(v.client_id)
     const auxLib = safe(clientNom)
 
-    // Ligne 1 : Débit 411 (TTC)
     body += fecLine([
       'VE', 'Journal des ventes', numVE, dateY,
       '411', 'Clients', auxNum, auxLib,
@@ -123,7 +147,6 @@ export async function GET(req: NextRequest) {
       '', '', '', fmtMontant(0), '',
     ]) + EOL
 
-    // Ligne 2 : Crédit 706 (HT)
     body += fecLine([
       'VE', 'Journal des ventes', numVE, dateY,
       '706', 'Prestations de services', '', '',
@@ -131,7 +154,6 @@ export async function GET(req: NextRequest) {
       '', '', '', fmtMontant(0), '',
     ]) + EOL
 
-    // Ligne 3 : Crédit 44571 (TVA collectée) — uniquement si TVA > 0
     if (tva > 0) {
       body += fecLine([
         'VE', 'Journal des ventes', numVE, dateY,
@@ -142,22 +164,20 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // Journal des achats
   let numAC = 0
   for (const a of achats) {
     numAC += 1
-    const ht = typeof a.montant_ht === 'number' ? a.montant_ht : 0
-    const tva = typeof a.tva === 'number' ? a.tva : 0
-    const ttc = typeof a.montant_ttc === 'number' ? a.montant_ttc : (ht + tva)
-    const dateY = fmtDateYYYYMMDD(a.date_facture)
-    const cat = (a.categorie as string | null) || 'autre'
+    const ht = a.montant_ht != null ? Number(a.montant_ht) : 0
+    const tva = a.tva != null ? Number(a.tva) : 0
+    const ttc = a.montant_ttc != null ? Number(a.montant_ttc) : (ht + tva)
+    const dateY = fmtDateYYYYMMDD(isoDate(a.date_facture))
+    const cat = a.categorie || 'autre'
     const compte = COMPTES_CHARGES[cat] || COMPTES_CHARGES.autre
     const lib = safe(`Facture ${a.fournisseur || ''} ${a.numero || ''}`.trim())
     const pieceRef = safe(a.numero || a.id)
     const auxNum = compAuxNum(a.id)
     const auxLib = safe(a.fournisseur || '')
 
-    // Ligne 1 : Débit 6XX (HT)
     body += fecLine([
       'AC', 'Journal des achats', numAC, dateY,
       compte.num, compte.lib, '', '',
@@ -165,7 +185,6 @@ export async function GET(req: NextRequest) {
       '', '', '', fmtMontant(0), '',
     ]) + EOL
 
-    // Ligne 2 : Débit 44566 (TVA déductible) — uniquement si TVA > 0
     if (tva > 0) {
       body += fecLine([
         'AC', 'Journal des achats', numAC, dateY,
@@ -175,7 +194,6 @@ export async function GET(req: NextRequest) {
       ]) + EOL
     }
 
-    // Ligne 3 : Crédit 401 (TTC)
     body += fecLine([
       'AC', 'Journal des achats', numAC, dateY,
       '401', 'Fournisseurs', auxNum, auxLib,
@@ -184,7 +202,6 @@ export async function GET(req: NextRequest) {
     ]) + EOL
   }
 
-  // Nom du fichier
   const SIREN = process.env.ALLO_SIREN || ''
   const dateFin = (to || from || new Date().toISOString().slice(0, 10)).replace(/-/g, '')
   const filename = `${SIREN}FEC${dateFin}.txt`

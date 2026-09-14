@@ -1,14 +1,21 @@
-import { NextRequest, NextResponse } from "next/server"
-import { resoudreAffectation } from "@/lib/compta-affectation"
-import { bornesMois } from "@/lib/compta-kpis"
-import { suggererRapprochements } from "@/lib/compta-rapprochement"
-import { getSupabaseOrNull } from "@/lib/supabase"
+import { NextRequest, NextResponse } from 'next/server'
+import { resoudreAffectation } from '@/lib/compta-affectation'
+import { bornesMois } from '@/lib/compta-kpis'
+import { suggererRapprochements } from '@/lib/compta-rapprochement'
+import { dbNotConfiguredResponse, getPrismaOrNull } from '@/lib/db'
 
-export const dynamic = "force-dynamic"
+export const dynamic = 'force-dynamic'
+
+function isoDate(d: Date): string {
+  return d.toISOString().slice(0, 10)
+}
 
 export async function POST(req: NextRequest) {
-  const sb = getSupabaseOrNull()
-  if (!sb) return NextResponse.json({ error: "Supabase non configuré" }, { status: 500 })
+  const prisma = getPrismaOrNull()
+  if (!prisma) {
+    const err = dbNotConfiguredResponse()
+    return NextResponse.json({ error: err.error }, { status: err.status })
+  }
 
   let body: { annee?: number; mois?: number; from?: string; to?: string }
   try {
@@ -17,68 +24,82 @@ export async function POST(req: NextRequest) {
     body = {}
   }
 
-  let dateFrom = body.from || ""
-  let dateTo = body.to || ""
+  let dateFrom = body.from || ''
+  let dateTo = body.to || ''
   if (body.annee && body.mois) {
     const b = bornesMois(body.annee, body.mois)
     dateFrom = b.from
     dateTo = b.to
   }
 
-  let opsQ = sb
-    .from("operations_bancaires")
-    .select("id, date_operation, libelle, debit, credit, lettre")
-    .eq("lettre", false)
+  const ops = await prisma.operationBancaire.findMany({
+    where: {
+      lettre: false,
+      ...(dateFrom || dateTo
+        ? {
+            date_operation: {
+              ...(dateFrom ? { gte: new Date(dateFrom) } : {}),
+              ...(dateTo ? { lte: new Date(dateTo) } : {}),
+            },
+          }
+        : {}),
+    },
+    select: { id: true, date_operation: true, libelle: true, debit: true, credit: true, lettre: true },
+  })
 
-  if (dateFrom) opsQ = opsQ.gte("date_operation", dateFrom)
-  if (dateTo) opsQ = opsQ.lte("date_operation", dateTo)
+  const [recRows, depRows] = await Promise.all([
+    prisma.document.findMany({
+      where: {
+        type: 'facture',
+        statut: { not: 'annule' },
+        ...(dateFrom || dateTo
+          ? {
+              date_emission: {
+                ...(dateFrom ? { gte: new Date(dateFrom) } : {}),
+                ...(dateTo ? { lte: new Date(dateTo) } : {}),
+              },
+            }
+          : {}),
+      },
+      select: { id: true, numero: true, date_emission: true, montant_ttc: true, statut: true, client_id: true },
+    }),
+    prisma.factureFournisseur.findMany({
+      where: {
+        ...(dateFrom || dateTo
+          ? {
+              date_facture: {
+                ...(dateFrom ? { gte: new Date(dateFrom) } : {}),
+                ...(dateTo ? { lte: new Date(dateTo) } : {}),
+              },
+            }
+          : {}),
+      },
+      select: { id: true, fournisseur: true, date_facture: true, montant_ttc: true, categorie: true },
+    }),
+  ])
 
-  const { data: ops, error: opsErr } = await opsQ
-  if (opsErr) return NextResponse.json({ error: opsErr.message }, { status: 500 })
-
-  let recQ = sb
-    .from("documents")
-    .select("id, numero, date_emission, montant_ttc, statut, client_id")
-    .eq("type", "facture")
-    .neq("statut", "annule")
-
-  let depQ = sb
-    .from("factures_fournisseurs")
-    .select("id, fournisseur, date_facture, montant_ttc, categorie")
-
-  if (dateFrom) {
-    recQ = recQ.gte("date_emission", dateFrom)
-    depQ = depQ.gte("date_facture", dateFrom)
-  }
-  if (dateTo) {
-    recQ = recQ.lte("date_emission", dateTo)
-    depQ = depQ.lte("date_facture", dateTo)
-  }
-
-  const [{ data: recRows }, { data: depRows }] = await Promise.all([recQ, depQ])
-
-  const depById = Object.fromEntries((depRows || []).map(d => [d.id as string, d]))
+  const depById = Object.fromEntries(depRows.map(d => [d.id, d]))
 
   const suggestions = suggererRapprochements(
-    (ops || []).map(o => ({
-      id: o.id as string,
-      date_operation: o.date_operation as string,
-      libelle: (o.libelle as string) || "",
+    ops.map(o => ({
+      id: o.id,
+      date_operation: isoDate(o.date_operation),
+      libelle: o.libelle || '',
       debit: Number(o.debit) || 0,
       credit: Number(o.credit) || 0,
       lettre: false,
     })),
-    (recRows || []).map(r => ({
-      id: r.id as string,
-      numero: (r.numero as string | null) ?? null,
-      date_emission: r.date_emission as string,
-      montant_ttc: (r.montant_ttc as number | null) ?? null,
-      statut: (r.statut as string) || "",
+    recRows.map(r => ({
+      id: r.id,
+      numero: r.numero,
+      date_emission: isoDate(r.date_emission),
+      montant_ttc: r.montant_ttc != null ? Number(r.montant_ttc) : null,
+      statut: r.statut || '',
     })),
-    (depRows || []).map(d => ({
-      id: d.id as string,
-      fournisseur: (d.fournisseur as string) || "",
-      date_facture: d.date_facture as string,
+    depRows.map(d => ({
+      id: d.id,
+      fournisseur: d.fournisseur || '',
+      date_facture: isoDate(d.date_facture),
       montant_ttc: Number(d.montant_ttc) || 0,
     })),
   )
@@ -87,18 +108,18 @@ export async function POST(req: NextRequest) {
   let skipped_no_compte = 0
   const errors: string[] = []
   const needs_manual: string[] = []
-  const now = new Date().toISOString()
+  const now = new Date()
 
   for (const s of suggestions) {
-    const op = (ops || []).find(o => o.id === s.operation_id)
+    const op = ops.find(o => o.id === s.operation_id)
     if (!op) continue
 
     const debit = Number(op.debit) || 0
     const credit = Number(op.credit) || 0
-    const document_id = s.type === "recette" ? s.cible_id : null
-    const facture_fournisseur_id = s.type === "depense" ? s.cible_id : null
+    const document_id = s.type === 'recette' ? s.cible_id : null
+    const facture_fournisseur_id = s.type === 'depense' ? s.cible_id : null
     const categorie = facture_fournisseur_id
-      ? (depById[facture_fournisseur_id]?.categorie as string | null)
+      ? depById[facture_fournisseur_id]?.categorie ?? null
       : null
 
     const resolved = resoudreAffectation({
@@ -115,24 +136,29 @@ export async function POST(req: NextRequest) {
       continue
     }
 
-    const patch: Record<string, unknown> = {
-      lettre: true,
-      lettre_at: now,
-      document_id,
-      facture_fournisseur_id,
-      categorie,
-      compte_num: resolved.affectation.compte_num,
-      compte_lib: resolved.affectation.compte_lib,
-    }
-
-    const { error } = await sb.from("operations_bancaires").update(patch).eq("id", s.operation_id)
-    if (error) {
-      errors.push(`${s.operation_id}: ${error.message}`)
+    try {
+      await prisma.operationBancaire.update({
+        where: { id: s.operation_id },
+        data: {
+          lettre: true,
+          lettre_at: now,
+          document_id,
+          facture_fournisseur_id,
+          categorie,
+          compte_num: resolved.affectation.compte_num,
+          compte_lib: resolved.affectation.compte_lib,
+        },
+      })
+    } catch (e) {
+      errors.push(`${s.operation_id}: ${e instanceof Error ? e.message : 'erreur'}`)
       continue
     }
 
-    if (s.type === "recette") {
-      await sb.from("documents").update({ statut: "paye", updated_at: now }).eq("id", s.cible_id)
+    if (s.type === 'recette') {
+      await prisma.document.update({
+        where: { id: s.cible_id },
+        data: { statut: 'paye' },
+      })
     }
     matched++
   }

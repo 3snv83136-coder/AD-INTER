@@ -131,10 +131,13 @@ export async function POST(req: NextRequest) {
     }
 
     if (interventionId) {
-      const { getSupabaseOrNull } = await import('@/lib/supabase')
-      const sb = getSupabaseOrNull()
-      if (sb) {
-        await sb.from('interventions').update({ statut: 'en_cours' }).eq('id', interventionId)
+      const { getPrismaOrNull } = await import('@/lib/db')
+      const prisma = getPrismaOrNull()
+      if (prisma) {
+        await prisma.intervention.update({
+          where: { id: interventionId },
+          data: { statut: 'en_cours' },
+        })
       }
     }
 

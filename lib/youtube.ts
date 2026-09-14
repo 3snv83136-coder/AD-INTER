@@ -1,6 +1,6 @@
 import { google, youtube_v3 } from "googleapis"
 import { OAuth2Client } from "google-auth-library"
-import { getSupabase } from "./supabase"
+import { getPrisma } from "./db"
 import { getTelPrincipal } from "./parametres"
 import { Readable } from "node:stream"
 
@@ -57,22 +57,25 @@ export async function exchangeCodeAndStore(code: string): Promise<{ email?: stri
     }
   }
 
-  const sb = getSupabase()
-  const { error } = await sb
-    .from("social_tokens")
-    .upsert(
-      {
-        platform: PLATFORM,
-        account_email: email || null,
-        refresh_token: tokens.refresh_token,
-        access_token: tokens.access_token || null,
-        expires_at: tokens.expiry_date ? new Date(tokens.expiry_date).toISOString() : null,
-        scope: tokens.scope || SCOPES.join(" "),
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "platform" },
-    )
-  if (error) throw new Error(`DB upsert social_tokens: ${error.message}`)
+  const prisma = getPrisma()
+  await prisma.socialToken.upsert({
+    where: { platform: PLATFORM },
+    create: {
+      platform: PLATFORM,
+      account_email: email || null,
+      refresh_token: tokens.refresh_token,
+      access_token: tokens.access_token || null,
+      expires_at: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
+      scope: tokens.scope || SCOPES.join(" "),
+    },
+    update: {
+      account_email: email || null,
+      refresh_token: tokens.refresh_token,
+      access_token: tokens.access_token || null,
+      expires_at: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
+      scope: tokens.scope || SCOPES.join(" "),
+    },
+  })
   return { email }
 }
 
@@ -84,18 +87,16 @@ function isInvalidGrant(err: unknown): boolean {
 
 /** Supprime le jeton YouTube obsolète (ex. après changement GOOGLE_CLIENT_* sur Vercel). */
 export async function clearYouTubeToken(): Promise<void> {
-  const sb = getSupabase()
-  await sb.from("social_tokens").delete().eq("platform", PLATFORM)
+  const prisma = getPrisma()
+  await prisma.socialToken.deleteMany({ where: { platform: PLATFORM } })
 }
 
 async function getAuthenticatedClient(): Promise<OAuth2Client> {
-  const sb = getSupabase()
-  const { data, error } = await sb
-    .from("social_tokens")
-    .select("refresh_token")
-    .eq("platform", PLATFORM)
-    .maybeSingle()
-  if (error) throw new Error(`DB lecture social_tokens: ${error.message}`)
+  const prisma = getPrisma()
+  const data = await prisma.socialToken.findUnique({
+    where: { platform: PLATFORM },
+    select: { refresh_token: true },
+  })
   if (!data?.refresh_token) {
     throw new Error("Aucun token YouTube — connecte le compte via /api/oauth/google")
   }

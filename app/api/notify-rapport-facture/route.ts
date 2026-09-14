@@ -10,8 +10,8 @@ import {
   planifierFactureRelances,
 } from "@/lib/facture-relance"
 import { buildRapportFactureHtml } from "@/lib/rapport-facture-message"
-import { getSupabaseOrNull } from "@/lib/supabase"
-import { getTelPrincipal } from "@/lib/parametres"
+import { getPrismaOrNull, dbNotConfiguredResponse } from "@/lib/db"
+import { getTelPrincipal, getParametre } from "@/lib/parametres"
 
 export const maxDuration = 60
 
@@ -72,17 +72,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Email en copie invalide' }, { status: 400 })
   }
 
-  const sb = getSupabaseOrNull()
-  if (!sb) {
-    return NextResponse.json({ error: 'Supabase non configuré' }, { status: 500 })
+  const prisma = getPrismaOrNull()
+  if (!prisma) {
+    const { error, status } = dbNotConfiguredResponse()
+    return NextResponse.json({ error }, { status })
   }
 
-  const { data: interv, error: intErr } = await sb
-    .from('interventions')
-    .select('id, reference, type_intervention, ville, date_realisee, date_prevue, agence, client_id, technicien_id, pdf_rapport_url, rapport_json, mail_envoye_at')
-    .eq('id', interventionId)
-    .single()
-  if (intErr || !interv) {
+  const interv = await prisma.intervention.findUnique({
+    where: { id: interventionId },
+    select: {
+      id: true, reference: true, type_intervention: true, ville: true, date_realisee: true,
+      date_prevue: true, agence: true, client_id: true, technicien_id: true, pdf_rapport_url: true,
+      rapport_json: true, mail_envoye_at: true,
+    },
+  })
+  if (!interv) {
     return NextResponse.json({ error: 'Intervention introuvable' }, { status: 404 })
   }
   // Idempotence : si le mail a déjà été envoyé dans les 30 dernières minutes,
@@ -99,14 +103,14 @@ export async function POST(req: NextRequest) {
 
   // range(0, 0) au lieu de limit(1) : limit + order drop silencieusement la
   // ligne la plus récente sur supabase-js (bug documenté, cf. /api/historique).
-  const { data: factures } = await sb
-    .from('documents')
-    .select('id, numero, montant_ht, montant_ttc, date_emission, echeance, statut, agence, pdf_url')
-    .eq('intervention_id', interventionId)
-    .eq('type', 'facture')
-    .order('created_at', { ascending: false })
-    .range(0, 0)
-  const facture = factures && factures[0]
+  const facture = await prisma.document.findFirst({
+    where: { intervention_id: interventionId, type: 'facture' },
+    orderBy: { created_at: 'desc' },
+    select: {
+      id: true, numero: true, montant_ht: true, montant_ttc: true, date_emission: true,
+      echeance: true, statut: true, agence: true, pdf_url: true,
+    },
+  })
   if (!facture) {
     return NextResponse.json({ error: 'Aucune facture trouvée pour cette intervention. Crée la facture d\'abord.' }, { status: 400 })
   }
@@ -117,11 +121,10 @@ export async function POST(req: NextRequest) {
   let clientNom = ''
   let clientEmailFromDb = ''
   if (interv.client_id) {
-    const { data: cl } = await sb
-      .from('clients')
-      .select('nom, email')
-      .eq('id', interv.client_id)
-      .single()
+    const cl = await prisma.client.findUnique({
+      where: { id: interv.client_id },
+      select: { nom: true, email: true },
+    })
     if (cl) { clientNom = cl.nom || ''; clientEmailFromDb = cl.email || '' }
   }
   const clientEmail = (body.clientEmail || clientEmailFromDb).trim()
@@ -131,11 +134,10 @@ export async function POST(req: NextRequest) {
 
   let technicienNom = 'votre technicien'
   if (interv.technicien_id) {
-    const { data: t } = await sb
-      .from('techniciens')
-      .select('nom')
-      .eq('id', interv.technicien_id)
-      .single()
+    const t = await prisma.technicien.findUnique({
+      where: { id: interv.technicien_id },
+      select: { nom: true },
+    })
     if (t?.nom) technicienNom = t.nom
   }
 
@@ -152,26 +154,25 @@ export async function POST(req: NextRequest) {
   if (!rapportB64) return NextResponse.json({ error: 'PDF rapport indisponible' }, { status: 502 })
   if (!factureB64) return NextResponse.json({ error: 'PDF facture indisponible' }, { status: 502 })
 
-  const dateInterv = interv.date_realisee || interv.date_prevue || ''
+  const dateInterv = interv.date_realisee
+    ? interv.date_realisee.toISOString().slice(0, 10)
+    : interv.date_prevue
+      ? interv.date_prevue.toISOString().slice(0, 10)
+      : ''
   const ville = interv.ville || ''
   const reference = interv.reference || interv.id.slice(0, 8)
   const factureNum = facture.numero || ''
-  const totalTTC = typeof facture.montant_ttc === 'number' ? facture.montant_ttc : null
+  const totalTTC = facture.montant_ttc != null ? Number(facture.montant_ttc) : null
   const factureReglee = isFactureReglee(facture.echeance)
-  const dateFacture = facture.date_emission || dateInterv
+  const dateFacture = facture.date_emission.toISOString().slice(0, 10) || dateInterv
 
-  // URL avis Google : priorité table parametres > env var > fallback recherche Maps
   let reviewUrl = process.env.GOOGLE_REVIEW_URL
     || 'https://www.google.com/maps/place/Les+Techniciens+du+Débouchage'
   try {
-    const { data: paramRow } = await sb
-      .from('parametres')
-      .select('valeur')
-      .eq('cle', 'google_review_url')
-      .maybeSingle()
-    if (paramRow?.valeur) reviewUrl = paramRow.valeur
+    const paramVal = await getParametre('google_review_url', '')
+    if (paramVal) reviewUrl = paramVal
   } catch {
-    // best-effort, on garde le fallback
+    // best-effort
   }
 
   // Planifie les relances avis (J+2, J+4, J+6) — même logique que /api/notify-client
@@ -253,33 +254,35 @@ export async function POST(req: NextRequest) {
 
   // Marque la facture comme envoyée + stocke les IDs relances (best-effort)
   try {
-    const { data: docRow } = await sb.from("documents").select("payload").eq("id", facture.id).maybeSingle()
+    const docRow = await prisma.document.findUnique({
+      where: { id: facture.id },
+      select: { payload: true },
+    })
     const payload = mergeFacturePayloadMeta(
       (docRow?.payload as Record<string, unknown>) || {},
       factureReglee
         ? { relance_ids: [], relance_planifiees: 0 }
         : { relance_ids: factureRelanceIds, relance_planifiees: factureRelanceIds.length },
     )
-    await sb
-      .from('documents')
-      .update({
+    await prisma.document.update({
+      where: { id: facture.id },
+      data: {
         envoye_email: clientEmail,
-        envoye_at: new Date().toISOString(),
+        envoye_at: new Date(),
         statut: facture.statut === 'paye' ? 'paye' : 'envoye',
-        payload,
-      })
-      .eq('id', facture.id)
+        payload: payload as object,
+      },
+    })
   } catch {}
 
-  // Marque l'intervention : mail envoyé + bump terrain_step à 7 (= diffusion OK, étape réseaux)
   try {
-    await sb
-      .from('interventions')
-      .update({
-        mail_envoye_at: new Date().toISOString(),
+    await prisma.intervention.update({
+      where: { id: interventionId },
+      data: {
+        mail_envoye_at: new Date(),
         terrain_step: 7,
-      })
-      .eq('id', interventionId)
+      },
+    })
   } catch {}
 
   return NextResponse.json({

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getSupabaseOrNull } from "@/lib/supabase"
+import { dbNotConfiguredResponse, getPrismaOrNull } from "@/lib/db"
 
 export const dynamic = 'force-dynamic'
 
@@ -7,19 +7,37 @@ type Params = { params: { id: string } }
 
 const UPDATABLE = new Set(['nom', 'email', 'telephone', 'adresse', 'code_postal', 'ville'])
 
+const clientSelect = {
+  id: true,
+  nom: true,
+  email: true,
+  telephone: true,
+  adresse: true,
+  code_postal: true,
+  ville: true,
+} as const
+
 /** GET /api/clients/[id] — fiche client. */
 export async function GET(_req: NextRequest, { params }: Params) {
-  const sb = getSupabaseOrNull()
-  if (!sb) return NextResponse.json({ error: 'Supabase non configuré' }, { status: 500 })
+  const prisma = getPrismaOrNull()
+  if (!prisma) {
+    const { error, status } = dbNotConfiguredResponse()
+    return NextResponse.json({ error }, { status })
+  }
 
-  const { data, error } = await sb
-    .from('clients')
-    .select('id, nom, email, telephone, adresse, code_postal, ville')
-    .eq('id', params.id)
-    .maybeSingle()
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  if (!data) return NextResponse.json({ error: 'Client introuvable' }, { status: 404 })
-  return NextResponse.json({ client: data })
+  try {
+    const data = await prisma.client.findUnique({
+      where: { id: params.id },
+      select: clientSelect,
+    })
+    if (!data) return NextResponse.json({ error: 'Client introuvable' }, { status: 404 })
+    return NextResponse.json({ client: data })
+  } catch (e) {
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : 'Erreur' },
+      { status: 500 },
+    )
+  }
 }
 
 /**
@@ -29,8 +47,11 @@ export async function GET(_req: NextRequest, { params }: Params) {
  * sans quitter le flux d'envoi.
  */
 export async function PATCH(req: NextRequest, { params }: Params) {
-  const sb = getSupabaseOrNull()
-  if (!sb) return NextResponse.json({ error: 'Supabase non configuré' }, { status: 500 })
+  const prisma = getPrismaOrNull()
+  if (!prisma) {
+    const { error, status } = dbNotConfiguredResponse()
+    return NextResponse.json({ error }, { status })
+  }
 
   let body: Record<string, unknown>
   try {
@@ -39,7 +60,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'JSON invalide' }, { status: 400 })
   }
 
-  const update: Record<string, unknown> = {}
+  const update: Record<string, string | null> = {}
   for (const [k, v] of Object.entries(body)) {
     if (!UPDATABLE.has(k)) continue
     if (typeof v === 'string') {
@@ -60,15 +81,20 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'Aucun champ à mettre à jour' }, { status: 400 })
   }
 
-  const { data, error } = await sb
-    .from('clients')
-    .update(update)
-    .eq('id', params.id)
-    .select('id, nom, email, telephone, adresse, code_postal, ville')
-    .maybeSingle()
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  if (!data) return NextResponse.json({ error: 'Client introuvable' }, { status: 404 })
-  return NextResponse.json({ client: data })
+  try {
+    const data = await prisma.client.update({
+      where: { id: params.id },
+      data: update,
+      select: clientSelect,
+    })
+    return NextResponse.json({ client: data })
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Erreur'
+    if (msg.includes('Record to update not found')) {
+      return NextResponse.json({ error: 'Client introuvable' }, { status: 404 })
+    }
+    return NextResponse.json({ error: msg }, { status: 500 })
+  }
 }
 
 /**
@@ -77,19 +103,20 @@ export async function PATCH(req: NextRequest, { params }: Params) {
  * il faut d'abord les supprimer pour préserver la cohérence de l'historique.
  */
 export async function DELETE(_req: NextRequest, { params }: Params) {
-  const sb = getSupabaseOrNull()
-  if (!sb) return NextResponse.json({ error: 'Supabase non configuré' }, { status: 500 })
+  const prisma = getPrismaOrNull()
+  if (!prisma) {
+    const { error, status } = dbNotConfiguredResponse()
+    return NextResponse.json({ error }, { status })
+  }
 
   const id = params.id
   if (!id) return NextResponse.json({ error: 'ID client manquant' }, { status: 400 })
 
-  // Garde : refuse la suppression si des entités sont rattachées
-  const [{ count: nbInterventions }, { count: nbDocuments }] = await Promise.all([
-    sb.from('interventions').select('id', { count: 'exact', head: true }).eq('client_id', id),
-    sb.from('documents').select('id', { count: 'exact', head: true }).eq('client_id', id),
+  const [interventions, documents] = await Promise.all([
+    prisma.intervention.count({ where: { client_id: id } }),
+    prisma.document.count({ where: { client_id: id } }),
   ])
-  const interventions = nbInterventions || 0
-  const documents = nbDocuments || 0
+
   if (interventions > 0 || documents > 0) {
     const parts: string[] = []
     if (interventions > 0) parts.push(`${interventions} intervention${interventions > 1 ? 's' : ''}`)
@@ -101,14 +128,20 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
     }, { status: 409 })
   }
 
-  const { data: deleted, error } = await sb
-    .from('clients')
-    .delete()
-    .eq('id', id)
-    .select('id')
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  if (!deleted || deleted.length === 0) {
-    return NextResponse.json({ error: 'Client introuvable (peut-être déjà supprimé)' }, { status: 404 })
+  try {
+    const deleted = await prisma.client.delete({
+      where: { id },
+      select: { id: true },
+    })
+    if (!deleted) {
+      return NextResponse.json({ error: 'Client introuvable (peut-être déjà supprimé)' }, { status: 404 })
+    }
+    return NextResponse.json({ ok: true })
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Erreur'
+    if (msg.includes('Record to delete does not exist')) {
+      return NextResponse.json({ error: 'Client introuvable (peut-être déjà supprimé)' }, { status: 404 })
+    }
+    return NextResponse.json({ error: msg }, { status: 500 })
   }
-  return NextResponse.json({ ok: true })
 }

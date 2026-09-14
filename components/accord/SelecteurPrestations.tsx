@@ -1,5 +1,5 @@
 'use client'
-import type { Tarif } from "@/lib/supabase"
+import type { Tarif } from "@/lib/types"
 import type { LigneDraft } from "@/lib/accord/calcul-devis"
 import { totalLigne } from "@/lib/accord/calcul-devis"
 import { fmtEUR } from "@/lib/format"

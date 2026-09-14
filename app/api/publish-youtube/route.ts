@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getSupabase } from "@/lib/supabase"
+import { getPrisma } from "@/lib/db"
 import { buildVideoMetadata, uploadVideoToYouTube } from "@/lib/youtube"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 300
 
 type Body = { interventionId?: string }
+type VideoUrls = { vertical?: string; square?: string; horizontal?: string }
 
 export async function POST(req: NextRequest) {
   let body: Body
@@ -18,17 +19,16 @@ export async function POST(req: NextRequest) {
   const interventionId = body.interventionId
   if (!interventionId) return NextResponse.json({ error: "interventionId manquant" }, { status: 400 })
 
-  const sb = getSupabase()
-  const { data: intervention, error: fetchErr } = await sb
-    .from("interventions")
-    .select("id, reference, ville, type_intervention, rapport_json, video_urls")
-    .eq("id", interventionId)
-    .maybeSingle()
+  const prisma = getPrisma()
+  const intervention = await prisma.intervention.findUnique({
+    where: { id: interventionId },
+    select: { id: true, reference: true, ville: true, type_intervention: true, rapport_json: true, video_urls: true },
+  })
 
-  if (fetchErr) return NextResponse.json({ error: fetchErr.message }, { status: 500 })
   if (!intervention) return NextResponse.json({ error: "Intervention introuvable" }, { status: 404 })
 
-  const horizontalUrl: string | undefined = intervention.video_urls?.horizontal
+  const videoUrls = intervention.video_urls as VideoUrls | null
+  const horizontalUrl = videoUrls?.horizontal
   if (!horizontalUrl) {
     return NextResponse.json(
       { error: "Pas de vidéo 16:9 disponible. Génère la vidéo d'abord." },
@@ -36,14 +36,17 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  await sb.from("interventions").update({ video_status: "uploading", video_error: null }).eq("id", interventionId)
+  await prisma.intervention.update({
+    where: { id: interventionId },
+    data: { video_status: "uploading", video_error: null },
+  })
 
   try {
     const meta = await buildVideoMetadata({
       typeIntervention: intervention.type_intervention,
       ville: intervention.ville,
       reference: intervention.reference,
-      rapport: intervention.rapport_json,
+      rapport: intervention.rapport_json as Record<string, unknown> | null,
     })
 
     const { videoId, url } = await uploadVideoToYouTube({
@@ -54,24 +57,24 @@ export async function POST(req: NextRequest) {
       privacyStatus: "public",
     })
 
-    await sb
-      .from("interventions")
-      .update({
+    await prisma.intervention.update({
+      where: { id: interventionId },
+      data: {
         video_youtube_id: videoId,
         video_youtube_url: url,
         video_status: "published",
-        video_published_at: new Date().toISOString(),
+        video_published_at: new Date(),
         video_error: null,
-      })
-      .eq("id", interventionId)
+      },
+    })
 
     return NextResponse.json({ ok: true, videoId, url }, { status: 200 })
-  } catch (e: any) {
-    const message = e?.message || String(e)
-    await sb
-      .from("interventions")
-      .update({ video_status: "ready", video_error: message })
-      .eq("id", interventionId)
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : String(e)
+    await prisma.intervention.update({
+      where: { id: interventionId },
+      data: { video_status: "ready", video_error: message },
+    })
     return NextResponse.json({ error: message }, { status: 500 })
   }
 }

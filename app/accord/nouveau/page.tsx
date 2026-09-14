@@ -1,6 +1,8 @@
 import Link from "next/link"
 import { redirect } from "next/navigation"
-import { getSupabaseOrNull, type Tarif } from "@/lib/supabase"
+import { getPrismaOrNull } from "@/lib/db"
+import type { Tarif } from "@/lib/types"
+import { serializeTarif } from "@/lib/types"
 import { getParametre } from "@/lib/parametres"
 import AccordForm, { type AccordPrefill } from "@/components/accord/AccordForm"
 import TechAccordChrome from "@/components/TechAccordChrome"
@@ -11,18 +13,18 @@ import { isAccordFinDeMois } from "@/lib/fin-de-mois"
 export const dynamic = 'force-dynamic'
 
 async function loadTarifs(): Promise<Tarif[]> {
-  const sb = getSupabaseOrNull()
-  if (!sb) return []
-  const { data, error } = await sb
-    .from('tarifs')
-    .select('*')
-    .eq('actif', true)
-    .order('label', { ascending: true })
-  if (error) {
-    console.error('[accord/nouveau] loadTarifs', error)
+  const prisma = getPrismaOrNull()
+  if (!prisma) return []
+  try {
+    const rows = await prisma.tarif.findMany({
+      where: { actif: true },
+      orderBy: { label: 'asc' },
+    })
+    return rows.map(serializeTarif)
+  } catch (e) {
+    console.error('[accord/nouveau] loadTarifs', e)
     return []
   }
-  return (data as Tarif[]) || []
 }
 
 /** Forme minimale d'une fiche client lue pour le pré-remplissage. */
@@ -37,43 +39,48 @@ type ClientRow = {
 
 /** Pré-remplissage client depuis une intervention existante (rattachement optionnel). */
 async function loadPrefill(interventionId: string): Promise<AccordPrefill | null> {
-  const sb = getSupabaseOrNull()
-  if (!sb) return null
+  const prisma = getPrismaOrNull()
+  if (!prisma) return null
 
-  const { data: itvData, error } = await sb
-    .from('interventions')
-    .select('adresse_chantier, ville, code_postal, client_id')
-    .eq('id', interventionId)
-    .maybeSingle()
-  if (error || !itvData) {
-    if (error) console.error('[accord/nouveau] loadPrefill intervention', error)
+  try {
+    const itvData = await prisma.intervention.findUnique({
+      where: { id: interventionId },
+      select: {
+        adresse_chantier: true,
+        ville: true,
+        code_postal: true,
+        client_id: true,
+      },
+    })
+    if (!itvData) return null
+
+    let client: ClientRow | null = null
+    if (itvData.client_id) {
+      client = await prisma.client.findUnique({
+        where: { id: itvData.client_id },
+        select: {
+          nom: true,
+          adresse: true,
+          code_postal: true,
+          ville: true,
+          telephone: true,
+          email: true,
+        },
+      })
+    }
+
+    return {
+      client_id: itvData.client_id ?? null,
+      client_nom: client?.nom || '',
+      client_adresse: client?.adresse || itvData.adresse_chantier || '',
+      client_code_postal: client?.code_postal || itvData.code_postal || '',
+      client_ville: client?.ville || itvData.ville || '',
+      client_telephone: client?.telephone || '',
+      client_email: client?.email || '',
+    }
+  } catch (e) {
+    console.error('[accord/nouveau] loadPrefill intervention', e)
     return null
-  }
-  const itv = itvData as {
-    adresse_chantier: string | null
-    ville: string | null
-    code_postal: string | null
-    client_id: string | null
-  }
-
-  let client: ClientRow | null = null
-  if (itv.client_id) {
-    const { data: cData } = await sb
-      .from('clients')
-      .select('nom, adresse, code_postal, ville, telephone, email')
-      .eq('id', itv.client_id)
-      .maybeSingle()
-    client = (cData as ClientRow | null) ?? null
-  }
-
-  return {
-    client_id: itv.client_id ?? null,
-    client_nom: client?.nom || '',
-    client_adresse: client?.adresse || itv.adresse_chantier || '',
-    client_code_postal: client?.code_postal || itv.code_postal || '',
-    client_ville: client?.ville || itv.ville || '',
-    client_telephone: client?.telephone || '',
-    client_email: client?.email || '',
   }
 }
 

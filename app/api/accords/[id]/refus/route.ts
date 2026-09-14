@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getSupabaseOrNull } from "@/lib/supabase"
+import { dbNotConfiguredResponse, getPrismaOrNull } from "@/lib/db"
 
 export const dynamic = 'force-dynamic'
 
@@ -12,8 +12,11 @@ type Body = { motif?: string | null }
  * Trace le refus (statut REFUSE + motif), protection en cas de litige inverse.
  */
 export async function POST(req: NextRequest, { params }: Params) {
-  const sb = getSupabaseOrNull()
-  if (!sb) return NextResponse.json({ error: 'Supabase non configuré' }, { status: 500 })
+  const prisma = getPrismaOrNull()
+  if (!prisma) {
+    const { error, status } = dbNotConfiguredResponse()
+    return NextResponse.json({ error }, { status })
+  }
 
   const accordId = params.id
   if (!accordId) return NextResponse.json({ error: 'ID accord manquant' }, { status: 400 })
@@ -25,11 +28,10 @@ export async function POST(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'JSON invalide' }, { status: 400 })
   }
 
-  const { data: accord } = await sb
-    .from('accords_intervention')
-    .select('id, statut')
-    .eq('id', accordId)
-    .maybeSingle()
+  const accord = await prisma.accordIntervention.findUnique({
+    where: { id: accordId },
+    select: { id: true, statut: true },
+  })
   if (!accord) return NextResponse.json({ error: 'Accord introuvable' }, { status: 404 })
   if (accord.statut !== 'BROUILLON') {
     return NextResponse.json(
@@ -40,12 +42,16 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   const motif = (body.motif || '').trim() || null
 
-  const { error } = await sb
-    .from('accords_intervention')
-    .update({ statut: 'REFUSE', motif_refus: motif })
-    .eq('id', accordId)
-  if (error) {
-    return NextResponse.json({ error: `DB update échouée : ${error.message}` }, { status: 500 })
+  try {
+    await prisma.accordIntervention.update({
+      where: { id: accordId },
+      data: { statut: 'REFUSE', motif_refus: motif },
+    })
+  } catch (e) {
+    return NextResponse.json(
+      { error: `DB update échouée : ${e instanceof Error ? e.message : 'erreur'}` },
+      { status: 500 },
+    )
   }
 
   return NextResponse.json({ ok: true })

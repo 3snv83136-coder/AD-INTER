@@ -1,33 +1,12 @@
-# Setup Supabase — Allo Débouchage CRM
+# Setup base de données — Allo Débouchage CRM
 
-## 1. Créer le projet
-1. https://supabase.com → Sign up.
-2. `New project` → `allo-crm` → région **Europe (West) Paris** → mot de passe DB (note-le).
-3. Attendre ~2 min que le projet soit provisionné.
+> **Migration Prisma** : la procédure à jour est dans [docs/database.md](../docs/database.md).
 
-## 2. Exécuter le schéma
-1. Dashboard → `SQL Editor` → `New query`.
-2. Coller le contenu de `schema.sql`.
-3. `Run` (bouton vert en bas à droite).
-4. Vérifier dans `Table Editor` : tu dois voir 5 tables (clients, techniciens, interventions, documents, factures_fournisseurs).
+Ce dossier conserve les migrations SQL historiques (référence).  
+La migration Prisma initiale est dans `prisma/migrations/20260715120000_init/`.
 
-## 3. Récupérer les clés
-Dashboard → `Project Settings` → `API` :
-- `Project URL` → variable `SUPABASE_URL`
-- Section `Project API keys` → ligne **service_role** (`secret`) → variable `SUPABASE_SERVICE_ROLE_KEY`
+## Résumé rapide
 
-⚠ **Ne jamais** exposer la `service_role` côté client (elle bypass toutes les protections). On l'utilise uniquement dans les routes API Next.js.
-
-## 4. Configurer les env vars
-### `.env.local` (dev)
-```
-SUPABASE_URL=https://xxxx.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=eyJhbGc...
-```
-
-### Vercel (prod)
-Project → Settings → Environment Variables → ajouter les deux. Cocher Production + Preview + Development.
-Redéployer (`vercel --prod` ou push).
-
-## 5. Vérifier la connexion
-Une fois les env vars en place, le bouton `Historique` de l'app affichera la liste (vide au début).
+1. Créer **Vercel Postgres** + **Vercel Blob** sur le projet `ad-inter`
+2. Configurer `DATABASE_URL` et `BLOB_READ_WRITE_TOKEN`
+3. `npx prisma migrate deploy`

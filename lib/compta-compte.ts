@@ -1,33 +1,29 @@
-import type { SupabaseClient } from "@supabase/supabase-js"
-import { ALLO_BANK } from "@/lib/entreprise"
+import { getPrisma } from '@/lib/db'
+import { ALLO_BANK } from '@/lib/entreprise'
 
 /** Retourne le compte bancaire actif principal (crée Qonto/Allo Débouchage si absent). */
-export async function ensureCompteBancairePrincipal(sb: SupabaseClient): Promise<string> {
-  const { data: existing } = await sb
-    .from("comptes_bancaires")
-    .select("id")
-    .eq("actif", true)
-    .order("created_at", { ascending: true })
-    .limit(1)
-    .maybeSingle()
+export async function ensureCompteBancairePrincipal(): Promise<string> {
+  const prisma = getPrisma()
 
-  if (existing?.id) return existing.id as string
+  const existing = await prisma.compteBancaire.findFirst({
+    where: { actif: true },
+    orderBy: { created_at: 'asc' },
+    select: { id: true },
+  })
 
-  const iban = ALLO_BANK.iban.replace(/\s+/g, "")
-  const { data: created, error } = await sb
-    .from("comptes_bancaires")
-    .insert({
-      banque: "Qonto",
+  if (existing) return existing.id
+
+  const iban = ALLO_BANK.iban.replace(/\s+/g, '')
+  const created = await prisma.compteBancaire.create({
+    data: {
+      banque: 'Qonto',
       iban,
-      libelle: "Compte principal Allo Débouchage",
+      libelle: 'Compte principal Allo Débouchage',
       solde_initial: 0,
       actif: true,
-    })
-    .select("id")
-    .single()
+    },
+    select: { id: true },
+  })
 
-  if (error || !created?.id) {
-    throw new Error(error?.message || "Impossible de créer le compte bancaire")
-  }
-  return created.id as string
+  return created.id
 }

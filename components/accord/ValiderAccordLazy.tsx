@@ -1,6 +1,6 @@
 'use client'
 import dynamic from "next/dynamic"
-import type { AccordIntervention, LigneDevis } from "@/lib/supabase"
+import type { AccordIntervention, LigneDevis } from "@/lib/types"
 import type { EmetteurInfo } from "@/components/accord/ApercuAccord"
 
 /**

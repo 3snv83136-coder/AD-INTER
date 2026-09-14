@@ -3,6 +3,7 @@ import { signIn } from "next-auth/react"
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { BrandLogo } from "@/components/BrandLogo"
+import { BRAND_NAME } from "@/lib/brand"
 
 /**
  * Bulles d'eau de l'arrière-plan animé. Valeurs FIXES (jamais Math.random) :
@@ -137,19 +138,17 @@ export default function LoginPage() {
       >
         <div className="mb-7 flex flex-col items-center text-center">
           <div style={{ animation: 'alloDrop 3s ease-in-out infinite' }}>
-            <BrandLogo variant="full" size={72} priority className="h-auto w-full max-w-[240px] drop-shadow-md" />
+            <BrandLogo variant="full" size={88} priority className="h-auto w-full max-w-[280px] drop-shadow-md" />
           </div>
-          <h1 className="mt-3 text-xl font-black leading-tight text-[#0e2a52]">
-            Les Techniciens
-            <br />
-            du Débouchage
+          <h1 className="mt-4 text-xl font-black leading-tight text-[#0e2a52]">
+            {BRAND_NAME}
           </h1>
           <p className="mt-1.5 text-[11px] font-semibold uppercase tracking-[0.25em] text-slate-400">
             Espace pro
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-3.5">
+        <form method="post" onSubmit={handleSubmit} className="space-y-3.5">
           <input
             name="username"
             type="text"
@@ -161,13 +160,11 @@ export default function LoginPage() {
           <input
             name="password"
             type="password"
-            placeholder="Mot de passe (techniciens)"
+            placeholder="Mot de passe"
             autoComplete="current-password"
+            required
             className="w-full rounded-xl border-2 border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/15"
           />
-          <p className="text-[11px] text-slate-500 -mt-1">
-            Admins : identifiant seul. Techniciens : identifiant + mot de passe.
-          </p>
           {error && (
             <p className="rounded-lg bg-red-50 px-3 py-2 text-sm font-semibold text-red-600">
               ⚠ {error}

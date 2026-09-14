@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getSupabase } from "@/lib/supabase"
+import { getPrisma } from "@/lib/db"
 import { publishToFacebook, buildSocialMetadata } from "@/lib/social"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 120
+
+type VideoUrls = { vertical?: string; square?: string; horizontal?: string }
 
 export async function POST(req: NextRequest) {
   let body: { interventionId?: string }
@@ -14,17 +16,16 @@ export async function POST(req: NextRequest) {
   const interventionId = body.interventionId
   if (!interventionId) return NextResponse.json({ error: "interventionId manquant" }, { status: 400 })
 
-  const sb = getSupabase()
-  const { data: intervention, error: fetchErr } = await sb
-    .from("interventions")
-    .select("id, reference, ville, type_intervention, rapport_json, video_urls")
-    .eq("id", interventionId)
-    .maybeSingle()
+  const prisma = getPrisma()
+  const intervention = await prisma.intervention.findUnique({
+    where: { id: interventionId },
+    select: { id: true, reference: true, ville: true, type_intervention: true, rapport_json: true, video_urls: true },
+  })
 
-  if (fetchErr) return NextResponse.json({ error: fetchErr.message }, { status: 500 })
   if (!intervention) return NextResponse.json({ error: "Intervention introuvable" }, { status: 404 })
 
-  const videoUrl = intervention.video_urls?.square || intervention.video_urls?.horizontal
+  const videoUrls = intervention.video_urls as VideoUrls | null
+  const videoUrl = videoUrls?.square || videoUrls?.horizontal
   if (!videoUrl) {
     return NextResponse.json({ error: "Pas de vidéo disponible. Génère d'abord." }, { status: 400 })
   }
@@ -33,7 +34,7 @@ export async function POST(req: NextRequest) {
     const meta = await buildSocialMetadata({
       typeIntervention: intervention.type_intervention,
       ville: intervention.ville,
-      rapport: intervention.rapport_json,
+      rapport: intervention.rapport_json as Record<string, unknown> | null,
     })
 
     const result = await publishToFacebook({
@@ -43,7 +44,8 @@ export async function POST(req: NextRequest) {
     })
 
     return NextResponse.json({ ok: true, ...result }, { status: 200 })
-  } catch (e: any) {
-    return NextResponse.json({ error: e?.message || "Facebook publish failed" }, { status: 500 })
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : "Facebook publish failed"
+    return NextResponse.json({ error: msg }, { status: 500 })
   }
 }

@@ -1,16 +1,16 @@
-import { NextRequest, NextResponse } from "next/server"
-import { escapeHtml, initResend } from "@/lib/email-utils"
-import { moisPrecedent, periodeLabel } from "@/lib/compta-kpis"
-import { getComptaAlertEmail, getTelPrincipal } from "@/lib/parametres"
-import { getSupabaseOrNull } from "@/lib/supabase"
+import { NextRequest, NextResponse } from 'next/server'
+import { escapeHtml, initResend } from '@/lib/email-utils'
+import { moisPrecedent, periodeLabel } from '@/lib/compta-kpis'
+import { getComptaAlertEmail, getTelPrincipal } from '@/lib/parametres'
+import { dbNotConfiguredResponse, getPrismaOrNull } from '@/lib/db'
 
-export const dynamic = "force-dynamic"
+export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
 function verifyCronAuth(req: NextRequest): boolean {
   const secret = process.env.CRON_SECRET
-  if (!secret) return process.env.NODE_ENV !== "production"
-  const auth = req.headers.get("authorization") || ""
+  if (!secret) return process.env.NODE_ENV !== 'production'
+  const auth = req.headers.get('authorization') || ''
   return auth === `Bearer ${secret}`
 }
 
@@ -38,21 +38,22 @@ function emailAlerteReleve(input: {
 
 export async function GET(req: NextRequest) {
   if (!verifyCronAuth(req)) {
-    return NextResponse.json({ error: "Non autorisé" }, { status: 401 })
+    return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
   }
 
-  const sb = getSupabaseOrNull()
-  if (!sb) return NextResponse.json({ error: "Supabase non configuré" }, { status: 500 })
+  const prisma = getPrismaOrNull()
+  if (!prisma) {
+    const err = dbNotConfiguredResponse()
+    return NextResponse.json({ error: err.error }, { status: err.status })
+  }
 
   const { annee, mois } = moisPrecedent()
   const label = periodeLabel(annee, mois)
 
-  const { data: releve } = await sb
-    .from("releves_bancaires")
-    .select("id, uploaded_at")
-    .eq("periode_annee", annee)
-    .eq("periode_mois", mois)
-    .maybeSingle()
+  const releve = await prisma.releveBancaire.findFirst({
+    where: { periode_annee: annee, periode_mois: mois },
+    select: { id: true, uploaded_at: true },
+  })
 
   if (releve?.id) {
     return NextResponse.json({
@@ -67,25 +68,25 @@ export async function GET(req: NextRequest) {
   if (!alertEmail) {
     return NextResponse.json({
       ok: false,
-      error: "COMPTA_ALERT_EMAIL non configuré",
+      error: 'COMPTA_ALERT_EMAIL non configuré',
     }, { status: 500 })
   }
 
   const ctx = initResend(alertEmail)
-  if ("error" in ctx) {
+  if ('error' in ctx) {
     return NextResponse.json({ error: ctx.error }, { status: ctx.status })
   }
 
   const tel = await getTelPrincipal()
   const appUrl = process.env.APP_BASE_URL
     || process.env.NEXTAUTH_URL
-    || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "https://app-allo-debouchage.vercel.app")
+    || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://app-allo-debouchage.vercel.app')
 
   const sent = await ctx.resend.emails.send({
     from: `Allo Débouchage Compta <${ctx.fromEmail}>`,
     to: ctx.recipient,
     subject: `⚠️ Relevé bancaire manquant — ${label}`,
-    html: emailAlerteReleve({ periodeLabel: label, annee, mois, appUrl: appUrl.replace(/\/+$/, ""), tel }),
+    html: emailAlerteReleve({ periodeLabel: label, annee, mois, appUrl: appUrl.replace(/\/+$/, ''), tel }),
   })
 
   if (sent.error) {
@@ -95,7 +96,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     ok: true,
     alerted: true,
-    periode: `${annee}-${String(mois).padStart(2, "0")}`,
+    periode: `${annee}-${String(mois).padStart(2, '0')}`,
     email_id: sent.data?.id,
     recipient: alertEmail,
   })

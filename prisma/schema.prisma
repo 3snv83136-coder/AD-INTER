@@ -1,0 +1,405 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Client {
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  nom                String
+  email              String?
+  telephone          String?
+  adresse            String?
+  code_postal        String?
+  ville              String?
+  notes              String?
+  type_client        String   @default("particulier")
+  siret              String?
+  siren              String?
+  forme_juridique    String?
+  contact_nom        String?
+  naf_code           String?
+  naf_libelle        String?
+  etat_administratif String?
+  created_at         DateTime @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  interventions Intervention[]
+  documents     Document[]
+  accords       AccordIntervention[]
+
+  @@index([nom])
+  @@index([email])
+  @@index([ville])
+  @@index([siret])
+  @@index([siren])
+  @@index([type_client])
+  @@map("clients")
+}
+
+model Technicien {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  nom                String
+  email              String?
+  telephone          String?
+  agence             String?
+  actif              Boolean   @default(true)
+  login              String?
+  password_hash      String?
+  role               String    @default("tech")
+  doit_changer_mdp   Boolean   @default(true)
+  derniere_connexion DateTime? @db.Timestamptz(6)
+  created_at         DateTime  @default(now()) @db.Timestamptz(6)
+
+  interventions Intervention[]
+
+  @@index([actif])
+  @@map("techniciens")
+}
+
+model SousTraitant {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  nom        String
+  email      String?
+  telephone  String?
+  actif      Boolean  @default(true)
+  notes      String?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  interventions Intervention[]
+
+  @@index([actif])
+  @@index([nom])
+  @@map("sous_traitants")
+}
+
+model Intervention {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reference          String?   @unique
+  client_id          String?   @db.Uuid
+  technicien_id      String?   @db.Uuid
+  agence             String?
+  type_intervention  String?
+  adresse_chantier   String?
+  ville              String?
+  code_postal        String?
+  date_prevue        DateTime? @db.Date
+  heure_prevue       DateTime? @db.Time(6)
+  duree_estimee_min  Int?
+  date_realisee      DateTime? @db.Date
+  urgence            Boolean   @default(false)
+  statut             String    @default("planifiee")
+  prix_prevu         Decimal?  @db.Decimal
+  notes_internes     String?
+  transcription      String?
+  rapport_json       Json?
+  seo_json           Json?
+  photos_urls        String[]
+  photos_legendes    String[]
+  pdf_rapport_url    String?
+  publie_slug        String?
+  canal_acquisition  String?
+  terrain_step       Int       @default(0)
+  heure_debut_reelle DateTime? @db.Timestamptz(6)
+  heure_fin_reelle   DateTime? @db.Timestamptz(6)
+  mail_envoye_at     DateTime? @db.Timestamptz(6)
+  avis_relance_at    DateTime? @db.Timestamptz(6)
+  avis_recu          Boolean   @default(false)
+  video_urls         Json?
+  video_youtube_id   String?
+  video_youtube_url  String?
+  video_status       String    @default("idle")
+  video_error        String?
+  video_rendered_at  DateTime? @db.Timestamptz(6)
+  video_published_at DateTime? @db.Timestamptz(6)
+  sms_envoye_at          DateTime? @db.Timestamptz(6)
+  flux                   String    @default("crm")
+  sous_traitant_id       String?   @db.Uuid
+  rapporteur_envoye_at   DateTime? @db.Timestamptz(6)
+  rapporteur_facture_id  String?   @db.Uuid
+  created_at             DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+
+  client       Client?             @relation(fields: [client_id], references: [id], onDelete: SetNull)
+  technicien   Technicien?         @relation(fields: [technicien_id], references: [id], onDelete: SetNull)
+  sousTraitant SousTraitant?       @relation(fields: [sous_traitant_id], references: [id], onDelete: SetNull)
+  documents    Document[]
+  accord       AccordIntervention?
+
+  @@index([date_prevue])
+  @@index([statut])
+  @@index([client_id])
+  @@index([technicien_id])
+  @@index([flux])
+  @@index([sous_traitant_id])
+  @@index([ville])
+  @@index([agence])
+  @@index([reference])
+  @@index([canal_acquisition])
+  @@index([terrain_step])
+  @@index([video_status])
+  @@map("interventions")
+}
+
+model Document {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  intervention_id String?   @db.Uuid
+  client_id       String?   @db.Uuid
+  type            String
+  numero          String?
+  agence          String?
+  date_emission   DateTime  @default(dbgenerated("CURRENT_DATE")) @db.Date
+  echeance        String?
+  statut          String    @default("brouillon")
+  montant_ht      Decimal?  @db.Decimal
+  montant_ttc     Decimal?  @db.Decimal
+  tva_taux        Decimal?  @db.Decimal
+  payload         Json
+  pdf_url         String?
+  envoye_email    String?
+  envoye_at       DateTime? @db.Timestamptz(6)
+  created_at      DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+
+  intervention        Intervention?       @relation(fields: [intervention_id], references: [id], onDelete: SetNull)
+  client              Client?             @relation(fields: [client_id], references: [id], onDelete: SetNull)
+  operations          OperationBancaire[]
+
+  @@index([type])
+  @@index([intervention_id])
+  @@index([client_id])
+  @@index([date_emission])
+  @@index([statut])
+  @@index([numero])
+  @@map("documents")
+}
+
+model FactureFournisseur {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  fournisseur   String
+  numero        String?
+  date_facture  DateTime @db.Date
+  montant_ht    Decimal  @default(0) @db.Decimal
+  tva           Decimal  @default(0) @db.Decimal
+  montant_ttc   Decimal  @default(0) @db.Decimal
+  categorie     String?
+  description   String?
+  pdf_url       String?
+  agence        String?
+  created_at    DateTime @default(now()) @db.Timestamptz(6)
+
+  operations OperationBancaire[]
+
+  @@index([date_facture])
+  @@index([categorie])
+  @@map("factures_fournisseurs")
+}
+
+model Parametre {
+  cle         String   @id
+  valeur      String?
+  description String?
+  updated_at  DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  @@map("parametres")
+}
+
+model Tarif {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  type       String   @unique
+  label      String
+  prix_min   Decimal  @default(0) @db.Decimal
+  prix_max   Decimal  @default(0) @db.Decimal
+  unite      String   @default("intervention")
+  actif      Boolean  @default(true)
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  @@index([type])
+  @@index([actif])
+  @@map("tarifs")
+}
+
+model AccordIntervention {
+  id                        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reference                 String?   @unique
+  intervention_id           String?   @unique @db.Uuid
+  client_id                 String?   @db.Uuid
+  client_nom                String    @default("")
+  client_adresse            String?
+  client_ville              String?
+  client_code_postal        String?
+  client_telephone          String?
+  client_email              String?
+  frais_deplacement         Decimal   @default(0) @db.Decimal
+  total_ht                  Decimal   @default(0) @db.Decimal
+  taux_tva                  Decimal   @default(0) @db.Decimal
+  total_tva                 Decimal   @default(0) @db.Decimal
+  total_ttc                 Decimal   @default(0) @db.Decimal
+  devis_gratuit             Boolean   @default(true)
+  validite_jours            Int       @default(30)
+  intervention_urgente      Boolean   @default(true)
+  demande_expresse          Boolean   @default(false)
+  renonciation_retractation Boolean   @default(false)
+  a_travaux_non_urgents     Boolean   @default(false)
+  canal_validation          String?
+  signature_image           String?
+  sms_token                 String?   @unique
+  sms_envoye_at             DateTime? @db.Timestamptz(6)
+  valide_at                 DateTime? @db.Timestamptz(6)
+  statut                    String    @default("BROUILLON")
+  motif_refus               String?
+  pdf_url                   String?
+  ip_client                 String?
+  user_agent                String?
+  copie_envoyee_at          DateTime? @db.Timestamptz(6)
+  local_id                  String?   @unique
+  synced_at                 DateTime? @db.Timestamptz(6)
+  created_at                DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at                DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+
+  intervention Intervention? @relation(fields: [intervention_id], references: [id], onDelete: SetNull)
+  client       Client?       @relation(fields: [client_id], references: [id], onDelete: SetNull)
+  lignes       LigneDevis[]
+
+  @@index([intervention_id])
+  @@index([client_id])
+  @@index([statut])
+  @@index([created_at])
+  @@index([reference])
+  @@map("accords_intervention")
+}
+
+model LigneDevis {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accord_id     String   @db.Uuid
+  tarif_type    String?
+  label         String
+  prix_unitaire Decimal  @default(0) @db.Decimal
+  unite         String   @default("intervention")
+  quantite      Decimal  @default(1) @db.Decimal
+  total_ligne   Decimal  @default(0) @db.Decimal
+  urgent        Boolean  @default(true)
+  position      Int      @default(0)
+  created_at    DateTime @default(now()) @db.Timestamptz(6)
+
+  accord AccordIntervention @relation(fields: [accord_id], references: [id], onDelete: Cascade)
+
+  @@index([accord_id])
+  @@map("lignes_devis")
+}
+
+model CompteBancaire {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  banque        String
+  iban          String?
+  libelle       String?
+  agence        String?
+  solde_initial Decimal  @default(0) @db.Decimal
+  actif         Boolean  @default(true)
+  created_at    DateTime @default(now()) @db.Timestamptz(6)
+
+  operations OperationBancaire[]
+  releves    ReleveBancaire[]
+
+  @@index([actif])
+  @@map("comptes_bancaires")
+}
+
+model OperationBancaire {
+  id                     String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  compte_id              String?  @db.Uuid
+  date_operation         DateTime @db.Date
+  date_valeur            DateTime? @db.Date
+  libelle                String
+  reference_brute        String?
+  debit                  Decimal  @default(0) @db.Decimal
+  credit                 Decimal  @default(0) @db.Decimal
+  lettre                 Boolean  @default(false)
+  lettre_at              DateTime? @db.Timestamptz(6)
+  document_id            String?  @db.Uuid
+  facture_fournisseur_id String?  @db.Uuid
+  categorie              String?
+  notes                  String?
+  source_import          String   @default("manuel")
+  import_batch_id        String?  @db.Uuid
+  compte_num             String?
+  compte_lib             String?
+  created_at             DateTime @default(now()) @db.Timestamptz(6)
+
+  compte              CompteBancaire?     @relation(fields: [compte_id], references: [id], onDelete: Cascade)
+  document            Document?           @relation(fields: [document_id], references: [id], onDelete: SetNull)
+  facture_fournisseur FactureFournisseur? @relation(fields: [facture_fournisseur_id], references: [id], onDelete: SetNull)
+
+  @@index([compte_id])
+  @@index([date_operation])
+  @@index([lettre])
+  @@index([document_id])
+  @@index([import_batch_id])
+  @@index([compte_num])
+  @@map("operations_bancaires")
+}
+
+model ReleveBancaire {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  compte_id       String?  @db.Uuid
+  periode_annee   Int
+  periode_mois    Int
+  pdf_url         String?
+  fichier_nom     String?
+  import_batch_id String?  @db.Uuid
+  nb_operations   Int      @default(0)
+  solde_fin_mois  Decimal? @db.Decimal
+  notes           String?
+  uploaded_at     DateTime @default(now()) @db.Timestamptz(6)
+
+  compte     CompteBancaire? @relation(fields: [compte_id], references: [id], onDelete: SetNull)
+  pre_bilans PreBilan[]
+
+  @@unique([compte_id, periode_annee, periode_mois])
+  @@index([periode_annee, periode_mois])
+  @@index([uploaded_at(sort: Desc)])
+  @@map("releves_bancaires")
+}
+
+model PreBilan {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  periode_annee   Int
+  periode_mois    Int
+  statut          String   @default("brouillon")
+  snapshot        Json     @default("{}")
+  releve_id       String?  @db.Uuid
+  comptable_email String?
+  envoye_at       DateTime? @db.Timestamptz(6)
+  valide_at       DateTime? @db.Timestamptz(6)
+  valide_par      String?
+  created_at      DateTime @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  releve ReleveBancaire? @relation(fields: [releve_id], references: [id], onDelete: SetNull)
+
+  @@unique([periode_annee, periode_mois])
+  @@index([statut])
+  @@index([periode_annee, periode_mois])
+  @@map("pre_bilans")
+}
+
+model SocialToken {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  platform      String    @unique
+  account_email String?
+  refresh_token String
+  access_token  String?
+  expires_at    DateTime? @db.Timestamptz(6)
+  scope         String?
+  created_at    DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+
+  @@index([platform])
+  @@map("social_tokens")
+}

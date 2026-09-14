@@ -1,0 +1,52 @@
+{
+  "expo": {
+    "name": "Allo Débouchage",
+    "slug": "allo-debouchage-terrain",
+    "version": "1.0.0",
+    "scheme": "allodebouchage",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0e2a52"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.allodebouchage.terrain",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Allo Débouchage utilise la caméra pour photographier le chantier.",
+        "NSPhotoLibraryUsageDescription": "Allo Débouchage utilise tes photos pour le rapport d'intervention.",
+        "NSPhotoLibraryAddUsageDescription": "Allo Débouchage enregistre les photos de chantier."
+      }
+    },
+    "android": {
+      "package": "com.allodebouchage.terrain",
+      "adaptiveIcon": {
+        "backgroundColor": "#0e2a52",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "permissions": ["CAMERA"]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-splash-screen",
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "Allo Débouchage utilise la caméra pour photographier le chantier.",
+          "photosPermission": "Allo Débouchage utilise tes photos pour le rapport d'intervention."
+        }
+      ]
+    ]
+  }
+}

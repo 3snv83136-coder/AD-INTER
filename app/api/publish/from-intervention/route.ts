@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
+import { Prisma } from "@prisma/client"
 import { formatDjangoPublishError } from "@/lib/django-publish-error"
 import { buildPublishDescription } from "@/lib/publish-description"
 import { buildPublishContentHtml } from "@/lib/publish-content"
-import { getSupabaseOrNull } from "@/lib/supabase"
+import { getPrismaOrNull, dbNotConfiguredResponse } from "@/lib/db"
 import { REALISATION_PAGE_STYLE } from "@/lib/realisationPageCss"
 
 export const dynamic = 'force-dynamic'
@@ -24,8 +25,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Config publication manquante (PUBLISH_API_URL / PUBLISH_API_TOKEN)' }, { status: 500 })
   }
 
-  const sb = getSupabaseOrNull()
-  if (!sb) return NextResponse.json({ error: 'Supabase non configuré' }, { status: 500 })
+  const prisma = getPrismaOrNull()
+  if (!prisma) {
+    const { error, status } = dbNotConfiguredResponse()
+    return NextResponse.json({ error }, { status })
+  }
 
   let body: { interventionId?: string }
   try {
@@ -36,12 +40,15 @@ export async function POST(req: NextRequest) {
   const interventionId = (body.interventionId || '').trim()
   if (!interventionId) return NextResponse.json({ error: 'interventionId requis' }, { status: 400 })
 
-  const { data: interv, error: intErr } = await sb
-    .from('interventions')
-    .select('id, reference, type_intervention, ville, code_postal, adresse_chantier, date_realisee, date_prevue, client_id, technicien_id, rapport_json, seo_json, transcription, photos_urls, photos_legendes, publie_slug')
-    .eq('id', interventionId)
-    .maybeSingle()
-  if (intErr) return NextResponse.json({ error: intErr.message }, { status: 500 })
+  const interv = await prisma.intervention.findUnique({
+    where: { id: interventionId },
+    select: {
+      id: true, reference: true, type_intervention: true, ville: true, code_postal: true,
+      adresse_chantier: true, date_realisee: true, date_prevue: true, client_id: true,
+      technicien_id: true, rapport_json: true, seo_json: true, transcription: true,
+      photos_urls: true, photos_legendes: true, publie_slug: true,
+    },
+  })
   if (!interv) return NextResponse.json({ error: 'Intervention introuvable' }, { status: 404 })
 
   if (!interv.rapport_json || Object.keys(interv.rapport_json).length === 0) {
@@ -65,11 +72,10 @@ export async function POST(req: NextRequest) {
   let clientVille: string | null = null
   let clientCp: string | null = null
   if (interv.client_id) {
-    const { data: c } = await sb
-      .from('clients')
-      .select('nom, email, adresse, ville, code_postal')
-      .eq('id', interv.client_id)
-      .maybeSingle()
+    const c = await prisma.client.findUnique({
+      where: { id: interv.client_id },
+      select: { nom: true, email: true, adresse: true, ville: true, code_postal: true },
+    })
     clientNom = c?.nom || ''
     clientEmail = c?.email || ''
     clientAdresse = c?.adresse || null
@@ -82,11 +88,10 @@ export async function POST(req: NextRequest) {
   // create() écrit null → IntegrityError 500. Fallback vide si pas de tech.
   let technicienNom = ''
   if (interv.technicien_id) {
-    const { data: t } = await sb
-      .from('techniciens')
-      .select('nom')
-      .eq('id', interv.technicien_id)
-      .maybeSingle()
+    const t = await prisma.technicien.findUnique({
+      where: { id: interv.technicien_id },
+      select: { nom: true },
+    })
     technicienNom = t?.nom || ''
   }
 
@@ -122,17 +127,20 @@ export async function POST(req: NextRequest) {
   // la limite de taille de body côté Django Allo Débouchage (~2MB) → HTTP 500 silencieux
   // sur l'endpoint /api/gallery/publish/. width=1280 + quality=70 ramène chaque
   // image à ~300-400KB.
-  const toRenderUrl = (url: string) => {
-    // /storage/v1/object/public/<bucket>/<path> → /storage/v1/render/image/public/<bucket>/<path>
-    const transformed = url.replace('/storage/v1/object/public/', '/storage/v1/render/image/public/')
-    const sep = transformed.includes('?') ? '&' : '?'
-    return `${transformed}${sep}width=1280&quality=70`
+  const toFetchUrl = (url: string) => {
+    // Compat anciens liens Supabase Storage : transformation render pour compression.
+    if (url.includes('/storage/v1/object/public/')) {
+      const transformed = url.replace('/storage/v1/object/public/', '/storage/v1/render/image/public/')
+      const sep = transformed.includes('?') ? '&' : '?'
+      return `${transformed}${sep}width=1280&quality=70`
+    }
+    return url
   }
 
   const photoBlobs = await Promise.all(
     photosUrls.map(async (url, i) => {
       try {
-        const r = await fetch(toRenderUrl(url))
+        const r = await fetch(toFetchUrl(url))
         if (!r.ok) throw new Error(`HTTP ${r.status}`)
         const blob = await r.blob()
         return { blob, filename: `${nomBase}-${i + 1}.jpg`, legende: interv.photos_legendes?.[i] || `Photo ${i + 1}` }
@@ -157,7 +165,11 @@ export async function POST(req: NextRequest) {
     photos: validPhotos.map((p) => ({ legende: p.legende })),
   })
 
-  const dateIntervention = interv.date_realisee || interv.date_prevue || new Date().toISOString().slice(0, 10)
+  const dateIntervention = interv.date_realisee
+    ? interv.date_realisee.toISOString().slice(0, 10)
+    : interv.date_prevue
+      ? interv.date_prevue.toISOString().slice(0, 10)
+      : new Date().toISOString().slice(0, 10)
 
   // Tronque les champs courts pour respecter les CharField Django.
   // title = CharField(max_length=100) côté Django → DeepSeek génère parfois
@@ -282,10 +294,10 @@ export async function POST(req: NextRequest) {
   const slug = (data && typeof data === 'object' && 'slug' in data ? String((data as { slug: string }).slug) : '') || (typeof seoForPublish.slug === 'string' ? seoForPublish.slug : '') || ''
   // Persiste le slug sur l'intervention (best-effort).
   if (slug) {
-    await sb.from('interventions').update({
-      publie_slug: slug,
-      seo_json: seoForPublish,
-    }).eq('id', interventionId)
+    await prisma.intervention.update({
+      where: { id: interventionId },
+      data: { publie_slug: slug, seo_json: seoForPublish as Prisma.InputJsonValue },
+    })
   }
 
   return NextResponse.json({ ok: true, slug, data })

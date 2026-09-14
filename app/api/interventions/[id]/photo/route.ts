@@ -1,26 +1,22 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getSessionUser, assertInterventionAccess } from "@/lib/intervention-access"
-import { getSupabaseOrNull } from "@/lib/supabase"
+import { getPrismaOrNull, dbNotConfiguredResponse } from "@/lib/db"
+import { uploadBlob, blobPaths } from "@/lib/storage"
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
-
-const PHOTOS_BUCKET = process.env.SUPABASE_PHOTOS_BUCKET || 'interventions-photos'
 
 type Params = { params: { id: string } }
 
 /**
  * Upload d'une photo unique pour le Mode Terrain.
  * Multipart/form-data : `photo` (File), `legende` (string, optionnel).
- *
- * Ajoute l'URL publique à interventions.photos_urls[] et la légende à
- * interventions.photos_legendes[]. Bump terrain_step selon contexte
- * (1 = première photo "avant", 3 = photo "après").
  */
 export async function POST(req: NextRequest, { params }: Params) {
-  const sb = getSupabaseOrNull()
-  if (!sb) {
-    return NextResponse.json({ error: 'Supabase non configuré' }, { status: 500 })
+  const prisma = getPrismaOrNull()
+  if (!prisma) {
+    const { error, status } = dbNotConfiguredResponse()
+    return NextResponse.json({ error }, { status })
   }
 
   const interventionId = params.id
@@ -51,62 +47,59 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   const legende = String(formData.get('legende') || '').trim().slice(0, 200)
 
-  const { data: interv, error: intErr } = await sb
-    .from('interventions')
-    .select('id, photos_urls, photos_legendes, terrain_step')
-    .eq('id', interventionId)
-    .maybeSingle()
-  if (intErr) return NextResponse.json({ error: intErr.message }, { status: 500 })
+  const interv = await prisma.intervention.findUnique({
+    where: { id: interventionId },
+    select: { id: true, photos_urls: true, photos_legendes: true, terrain_step: true },
+  })
   if (!interv) return NextResponse.json({ error: 'Intervention introuvable' }, { status: 404 })
 
-  const folder = interventionId.replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 80)
   const ext = (file.name.match(/\.[a-zA-Z0-9]+$/)?.[0] || '.jpg').toLowerCase()
-  const path = `${folder}/${Date.now()}${ext}`
+  const filename = `${Date.now()}${ext}`
   const buf = Buffer.from(await file.arrayBuffer())
 
-  const upload = await sb.storage
-    .from(PHOTOS_BUCKET)
-    .upload(path, buf, { contentType: file.type || 'image/jpeg', upsert: true })
-  if (upload.error) {
-    return NextResponse.json({ error: `Upload échoué : ${upload.error.message}` }, { status: 502 })
-  }
-
-  const { data: pub } = sb.storage.from(PHOTOS_BUCKET).getPublicUrl(path)
-  const url = pub?.publicUrl
-  if (!url) {
-    return NextResponse.json({ error: 'URL publique introuvable' }, { status: 500 })
+  let url: string
+  try {
+    url = await uploadBlob({
+      pathname: blobPaths.photo(interventionId, filename),
+      body: buf,
+      contentType: file.type || 'image/jpeg',
+    })
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return NextResponse.json({ error: `Upload échoué : ${msg}` }, { status: 502 })
   }
 
   const photosUrls = [...(interv.photos_urls || []), url]
   const photosLegendes = [...(interv.photos_legendes || []), legende || defaultLegende(photosUrls.length - 1)]
 
-  // Bump terrain_step : 1ère photo → 1 (démarrer), 2ème → 3 (rapport si déjà passé en cours),
-  // photos suivantes → ne touche pas au step.
   const currentStep = interv.terrain_step ?? 0
   let nextStep = currentStep
   const count = photosUrls.length
   if (count >= 1 && currentStep < 1) nextStep = 1
   else if (count >= 2 && currentStep < 3) nextStep = 3
 
-  const { data: updated, error: upErr } = await sb
-    .from('interventions')
-    .update({
-      photos_urls: photosUrls,
-      photos_legendes: photosLegendes,
-      terrain_step: nextStep,
+  try {
+    const updated = await prisma.intervention.update({
+      where: { id: interventionId },
+      data: {
+        photos_urls: photosUrls,
+        photos_legendes: photosLegendes,
+        terrain_step: nextStep,
+      },
+      select: { id: true, photos_urls: true, photos_legendes: true, terrain_step: true },
     })
-    .eq('id', interventionId)
-    .select('id, photos_urls, photos_legendes, terrain_step')
-    .single()
-  if (upErr) return NextResponse.json({ error: upErr.message }, { status: 500 })
 
-  return NextResponse.json({
-    ok: true,
-    url,
-    photos_urls: updated.photos_urls,
-    photos_legendes: updated.photos_legendes,
-    terrain_step: updated.terrain_step,
-  })
+    return NextResponse.json({
+      ok: true,
+      url,
+      photos_urls: updated.photos_urls,
+      photos_legendes: updated.photos_legendes,
+      terrain_step: updated.terrain_step,
+    })
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Erreur base de données'
+    return NextResponse.json({ error: msg }, { status: 500 })
+  }
 }
 
 function defaultLegende(index: number): string {

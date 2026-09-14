@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getSupabaseOrNull, upsertClient } from "@/lib/supabase"
-import type { SupabaseClient } from "@supabase/supabase-js"
-
-const PHOTOS_BUCKET = process.env.SUPABASE_PHOTOS_BUCKET || 'interventions-photos'
+import { Prisma } from "@prisma/client"
+import { getPrismaOrNull } from "@/lib/db"
+import { upsertClient } from "@/lib/db-helpers"
+import { uploadBlob, blobPaths } from "@/lib/storage"
 
 export async function POST(req: NextRequest) {
   const formData = await req.formData()
@@ -22,8 +22,8 @@ export async function POST(req: NextRequest) {
     })
 
     const txt = await response.text()
-    let data: any = null
-    try { data = JSON.parse(txt) } catch { /* réponse non-JSON (HTML d'erreur Django, etc.) */ }
+    let data: Record<string, unknown> | null = null
+    try { data = JSON.parse(txt) } catch { /* réponse non-JSON */ }
 
     if (!response.ok) {
       console.error('[publish] Publish API error', {
@@ -34,23 +34,23 @@ export async function POST(req: NextRequest) {
         sentFields: Array.from(formData.keys()),
       })
       const msg = data
-        ? (typeof data === 'string' ? data : data.error || data.detail || JSON.stringify(data))
+        ? (typeof data === 'string' ? data : (data.error as string) || (data.detail as string) || JSON.stringify(data))
         : `HTTP ${response.status} — ${txt.slice(0, 800)}`
       return NextResponse.json({ error: `Publish API : ${msg}`, status: response.status, bodyPreview: txt.slice(0, 800) }, { status: response.status })
     }
 
-    // Persiste l'intervention en DB (best-effort, on ne bloque pas la réponse)
-    persistIntervention(formData, data).catch(e => console.error('[publish] supabase persist', e))
+    persistIntervention(formData, data).catch(e => console.error('[publish] prisma persist', e))
 
     return NextResponse.json(data ?? { ok: true }, { status: 201 })
-  } catch (e: any) {
-    return NextResponse.json({ error: `Publish fetch failed : ${e.message || e.toString()}` }, { status: 500 })
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return NextResponse.json({ error: `Publish fetch failed : ${msg}` }, { status: 500 })
   }
 }
 
-async function persistIntervention(formData: FormData, publishResponse: any) {
-  const sb = getSupabaseOrNull()
-  if (!sb) return
+async function persistIntervention(formData: FormData, publishResponse: Record<string, unknown> | null) {
+  const prisma = getPrismaOrNull()
+  if (!prisma) return
 
   const get = (k: string) => {
     const v = formData.get(k)
@@ -62,16 +62,15 @@ async function persistIntervention(formData: FormData, publishResponse: any) {
   const clientAdresse = get('client_adresse') || ''
   const ville = get('intervention_city') || get('location') || ''
   const codePostal = get('postal_code') || ''
-  const slug = publishResponse?.slug || get('slug') || ''
+  const slug = (publishResponse?.slug as string) || get('slug') || ''
   const typeIntervention = get('service_type') || ''
   const dateRealisee = get('intervention_date') || null
   const transcription = get('transcription') || ''
   const rapportJson = safeParseJson(get('rapport_json'))
   const seoJson = safeParseJson(get('seo_json'))
-  const reference = rapportJson?.reference || null
+  const reference = (rapportJson as { reference?: string })?.reference || null
   const interventionId = get('intervention_id')
 
-  // Upsert client
   const clientId = await upsertClient({
     nom: clientNom,
     email: clientEmail,
@@ -80,69 +79,78 @@ async function persistIntervention(formData: FormData, publishResponse: any) {
     code_postal: codePostal,
   })
 
-  const photosUrls = await uploadInterventionPhotos(sb, formData, slug || interventionId || reference || 'intervention')
+  const photosUrls = await uploadInterventionPhotos(formData, slug || interventionId || reference || 'intervention')
+
+  const dateIso = dateRealisee && /^\d{4}-\d{2}-\d{2}$/.test(dateRealisee) ? new Date(dateRealisee) : null
 
   if (interventionId) {
-    // Mise à jour de l'intervention planifiée existante
-    const { error } = await sb.from('interventions').update({
-      client_id: clientId,
-      type_intervention: typeIntervention || null,
-      adresse_chantier: clientAdresse || null,
-      ville: ville || null,
-      code_postal: codePostal || null,
-      date_realisee: dateRealisee,
-      statut: 'terminee',
-      transcription: transcription || null,
-      rapport_json: rapportJson,
-      seo_json: seoJson,
-      publie_slug: slug || null,
-      ...(photosUrls.length > 0 ? { photos_urls: photosUrls } : {}),
-    }).eq('id', interventionId)
-    if (error) console.error('[persistIntervention update]', error)
+    try {
+      await prisma.intervention.update({
+        where: { id: interventionId },
+        data: {
+          client_id: clientId,
+          type_intervention: typeIntervention || null,
+          adresse_chantier: clientAdresse || null,
+          ville: ville || null,
+          code_postal: codePostal || null,
+          date_realisee: dateIso,
+          statut: 'terminee',
+          transcription: transcription || null,
+          rapport_json: rapportJson as Prisma.InputJsonValue,
+          seo_json: seoJson as Prisma.InputJsonValue,
+          publie_slug: slug || null,
+          ...(photosUrls.length > 0 ? { photos_urls: photosUrls } : {}),
+        },
+      })
+    } catch (e) {
+      console.error('[persistIntervention update]', e)
+    }
     return
   }
 
-  // Sinon, insère une nouvelle intervention (status terminée car publiée).
-  // Tente jusqu'à 5 fois en suffixant la référence si collision unique.
   let attempt = 0
   let currentRef: string | null = reference
   while (attempt < 5) {
-    const { error } = await sb.from('interventions').insert({
-      reference: currentRef,
-      client_id: clientId,
-      type_intervention: typeIntervention || null,
-      adresse_chantier: clientAdresse || null,
-      ville: ville || null,
-      code_postal: codePostal || null,
-      date_realisee: dateRealisee,
-      statut: 'terminee',
-      transcription: transcription || null,
-      rapport_json: rapportJson,
-      seo_json: seoJson,
-      publie_slug: slug || null,
-      photos_urls: photosUrls.length > 0 ? photosUrls : null,
-    })
-    if (!error) return
-    // 23505 = unique_violation Postgres
-    if (error.code === '23505' && currentRef) {
-      attempt++
-      const suffix = Math.random().toString(36).slice(2, 5).toUpperCase()
-      currentRef = `${reference}-${suffix}`
-      continue
+    try {
+      await prisma.intervention.create({
+        data: {
+          reference: currentRef,
+          client_id: clientId,
+          type_intervention: typeIntervention || null,
+          adresse_chantier: clientAdresse || null,
+          ville: ville || null,
+          code_postal: codePostal || null,
+          date_realisee: dateIso,
+          statut: 'terminee',
+          transcription: transcription || null,
+          rapport_json: rapportJson as Prisma.InputJsonValue,
+          seo_json: seoJson as Prisma.InputJsonValue,
+          publie_slug: slug || null,
+          photos_urls: photosUrls.length > 0 ? photosUrls : [],
+        },
+      })
+      return
+    } catch (e) {
+      const code = (e as { code?: string })?.code
+      if (code === 'P2002' && currentRef) {
+        attempt++
+        const suffix = Math.random().toString(36).slice(2, 5).toUpperCase()
+        currentRef = `${reference}-${suffix}`
+        continue
+      }
+      console.error('[persistIntervention]', e)
+      return
     }
-    console.error('[persistIntervention]', error)
-    return
   }
   console.error('[persistIntervention] exhausted retries on duplicate reference')
 }
 
-function safeParseJson(s: string | null): any {
+function safeParseJson(s: string | null): Record<string, unknown> | null {
   if (!s) return null
-  try { return JSON.parse(s) } catch { return null }
+  try { return JSON.parse(s) as Record<string, unknown> } catch { return null }
 }
 
 async function uploadInterventionPhotos(
-  sb: SupabaseClient,
   formData: FormData,
   folderKey: string,
 ): Promise<string[]> {
@@ -170,20 +178,18 @@ async function uploadInterventionPhotos(
   for (let i = 0; i < ordered.length; i++) {
     const file = ordered[i]
     const ext = (file.name.match(/\.[a-zA-Z0-9]+$/)?.[0] || '.jpg').toLowerCase()
-    const path = `${folder}/${stamp}-${i}${ext}`
+    const filename = `${stamp}-${i}${ext}`
     const buf = Buffer.from(await file.arrayBuffer())
-    const { error } = await sb.storage
-      .from(PHOTOS_BUCKET)
-      .upload(path, buf, {
+    try {
+      const url = await uploadBlob({
+        pathname: blobPaths.photo(folder, filename),
+        body: buf,
         contentType: file.type || 'image/jpeg',
-        upsert: true,
       })
-    if (error) {
-      console.error('[uploadInterventionPhotos]', { path, error: error.message })
-      continue
+      urls.push(url)
+    } catch (e) {
+      console.error('[uploadInterventionPhotos]', { filename, error: e instanceof Error ? e.message : e })
     }
-    const { data } = sb.storage.from(PHOTOS_BUCKET).getPublicUrl(path)
-    if (data?.publicUrl) urls.push(data.publicUrl)
   }
   return urls
 }

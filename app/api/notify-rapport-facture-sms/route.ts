@@ -1,16 +1,12 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getSessionUser, assertInterventionAccess } from "@/lib/intervention-access"
 import { buildRapportFactureSmsText } from "@/lib/rapport-facture-message"
-import { getTelPrincipal } from "@/lib/parametres"
+import { getTelPrincipal, getParametre } from "@/lib/parametres"
 import { normalizePhoneForSmsUri } from "@/lib/sms"
-import { getSupabaseOrNull } from "@/lib/supabase"
+import { getPrismaOrNull, dbNotConfiguredResponse } from "@/lib/db"
 
 export const maxDuration = 60
 
-/**
- * Prépare le texte SMS (messagerie native du téléphone).
- * Les PDF doivent déjà être uploadés (comme pour le mail).
- */
 export async function POST(req: NextRequest) {
   let body: { interventionId?: string; clientPhone?: string; markSent?: boolean }
   try {
@@ -34,15 +30,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: access.error }, { status: access.status })
   }
 
-  const sb = getSupabaseOrNull()
-  if (!sb) return NextResponse.json({ error: "Supabase non configuré" }, { status: 500 })
+  const prisma = getPrismaOrNull()
+  if (!prisma) {
+    const { error, status } = dbNotConfiguredResponse()
+    return NextResponse.json({ error }, { status })
+  }
 
-  const { data: interv, error: intErr } = await sb
-    .from("interventions")
-    .select("id, reference, ville, date_realisee, date_prevue, client_id, technicien_id, pdf_rapport_url")
-    .eq("id", interventionId)
-    .single()
-  if (intErr || !interv) {
+  const interv = await prisma.intervention.findUnique({
+    where: { id: interventionId },
+    select: {
+      id: true, reference: true, ville: true, date_realisee: true, date_prevue: true,
+      client_id: true, technicien_id: true, pdf_rapport_url: true,
+    },
+  })
+  if (!interv) {
     return NextResponse.json({ error: "Intervention introuvable" }, { status: 404 })
   }
   if (!interv.pdf_rapport_url) {
@@ -51,39 +52,38 @@ export async function POST(req: NextRequest) {
     }, { status: 400 })
   }
 
-  const { data: factures } = await sb
-    .from("documents")
-    .select("id, numero, montant_ttc, pdf_url")
-    .eq("intervention_id", interventionId)
-    .eq("type", "facture")
-    .order("created_at", { ascending: false })
-    .range(0, 0)
-  const facture = factures?.[0]
+  const facture = await prisma.document.findFirst({
+    where: { intervention_id: interventionId, type: "facture" },
+    orderBy: { created_at: "desc" },
+    select: { id: true, numero: true, montant_ttc: true, pdf_url: true },
+  })
   if (!facture?.pdf_url) {
     return NextResponse.json({ error: "Facture PDF introuvable — crée la facture d'abord." }, { status: 400 })
   }
 
   let clientNom = ""
   if (interv.client_id) {
-    const { data: cl } = await sb.from("clients").select("nom").eq("id", interv.client_id).single()
+    const cl = await prisma.client.findUnique({
+      where: { id: interv.client_id },
+      select: { nom: true },
+    })
     if (cl?.nom) clientNom = cl.nom
   }
 
   let technicienNom = "votre technicien"
   if (interv.technicien_id) {
-    const { data: t } = await sb.from("techniciens").select("nom").eq("id", interv.technicien_id).single()
+    const t = await prisma.technicien.findUnique({
+      where: { id: interv.technicien_id },
+      select: { nom: true },
+    })
     if (t?.nom) technicienNom = t.nom
   }
 
   let reviewUrl = process.env.GOOGLE_REVIEW_URL
     || "https://www.google.com/maps/place/Les+Techniciens+du+Débouchage"
   try {
-    const { data: paramRow } = await sb
-      .from("parametres")
-      .select("valeur")
-      .eq("cle", "google_review_url")
-      .maybeSingle()
-    if (paramRow?.valeur) reviewUrl = paramRow.valeur
+    const paramVal = await getParametre("google_review_url", "")
+    if (paramVal) reviewUrl = paramVal
   } catch { /* best-effort */ }
 
   const tel = await getTelPrincipal()
@@ -91,10 +91,14 @@ export async function POST(req: NextRequest) {
     clientNom,
     technicienNom,
     ville: interv.ville || "",
-    dateIntervention: interv.date_realisee || interv.date_prevue || "",
+    dateIntervention: interv.date_realisee
+      ? interv.date_realisee.toISOString().slice(0, 10)
+      : interv.date_prevue
+        ? interv.date_prevue.toISOString().slice(0, 10)
+        : "",
     reference: interv.reference || interv.id.slice(0, 8),
     factureNumero: facture.numero || "",
-    totalTTC: typeof facture.montant_ttc === "number" ? facture.montant_ttc : null,
+    totalTTC: facture.montant_ttc != null ? Number(facture.montant_ttc) : null,
     reviewUrl,
     tel,
     rapportUrl: interv.pdf_rapport_url,
@@ -103,17 +107,18 @@ export async function POST(req: NextRequest) {
 
   if (body.markSent !== false) {
     try {
-      await sb
-        .from("interventions")
-        .update({ sms_envoye_at: new Date().toISOString() })
-        .eq("id", interventionId)
+      await prisma.intervention.update({
+        where: { id: interventionId },
+        data: { sms_envoye_at: new Date() },
+      })
     } catch { /* best-effort */ }
 
     if (interv.client_id) {
       try {
-        await sb.from("clients").update({
-          telephone: normalizePhoneForSmsUri(clientPhone) || clientPhone,
-        }).eq("id", interv.client_id)
+        await prisma.client.update({
+          where: { id: interv.client_id },
+          data: { telephone: normalizePhoneForSmsUri(clientPhone) || clientPhone },
+        })
       } catch { /* best-effort */ }
     }
   }

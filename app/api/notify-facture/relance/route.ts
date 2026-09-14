@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { escapeHtml, initResend } from "@/lib/email-utils"
 import { fmtEUR } from "@/lib/format"
-import { getSupabaseOrNull } from "@/lib/supabase"
+import { getPrismaOrNull } from "@/lib/db"
 import { getTelPrincipal } from "@/lib/parametres"
 
 export const maxDuration = 30
@@ -59,14 +59,14 @@ export async function POST(req: NextRequest) {
 
   // Mise à jour `envoye_at` côté DB (best-effort, non bloquant)
   if (documentId) {
-    const sb = getSupabaseOrNull()
-    if (sb) {
-      sb.from('documents')
-        .update({ envoye_at: new Date().toISOString(), envoye_email: clientEmail || null })
-        .eq('id', documentId)
-        .then(({ error }) => {
-          if (error) console.error('[notify-facture/relance] update envoye_at', error)
-        })
+    const prisma = getPrismaOrNull()
+    if (prisma) {
+      prisma.document.update({
+        where: { id: documentId },
+        data: { envoye_at: new Date(), envoye_email: clientEmail || null },
+      }).catch((e: unknown) => {
+        console.error('[notify-facture/relance] update envoye_at', e)
+      })
     }
   }
 

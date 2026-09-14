@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation"
 import { pdfElementToBlob } from "@/lib/pdfToBase64"
 import { AccordDocument } from "@/components/accord/AccordPDF"
 import SignatureCanvas from "@/components/accord/SignatureCanvas"
-import type { AccordIntervention, LigneDevis } from "@/lib/supabase"
+import type { AccordIntervention, LigneDevis } from "@/lib/types"
 import type { EmetteurInfo } from "@/components/accord/ApercuAccord"
 
 type Props = {
