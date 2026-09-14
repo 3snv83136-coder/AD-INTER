@@ -5,8 +5,9 @@ import { signOut } from "next-auth/react"
 import { type ComponentType } from "react"
 import {
   HomeIcon, CalendarIcon, DocumentIcon, CameraIcon, ClipboardIcon, ReceiptIcon,
-  CheckBadgeIcon, ArchiveIcon, ChartBarIcon, BriefcaseIcon, EnvelopeIcon,
+  ArchiveIcon, EnvelopeIcon,
 } from "@/components/Icons"
+import { BackLink } from "@/components/BackLink"
 
 type Tab = {
   href: string
@@ -21,10 +22,7 @@ const TABS: Tab[] = [
   { href: '/inspection',   label: 'Caméra',       Icon: CameraIcon },
   { href: '/devis',        label: 'Devis',        Icon: ClipboardIcon },
   { href: '/facture',      label: 'Facturation',  Icon: ReceiptIcon },
-  { href: '/attestation',  label: 'Attestation',  Icon: CheckBadgeIcon },
   { href: '/historique',   label: 'Historique',   Icon: ArchiveIcon },
-  { href: '/statistiques', label: 'Statistiques', Icon: ChartBarIcon },
-  { href: '/comptabilite', label: 'Comptabilité', Icon: BriefcaseIcon },
   { href: '/mail',         label: 'Mail',         Icon: EnvelopeIcon },
 ]
 
@@ -34,7 +32,8 @@ export default function AppTabs() {
 
   return (
     <nav className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 scrollbar-hide">
-      <div className="inline-flex gap-1 p-1 bg-slate-100 rounded-2xl mb-3 whitespace-nowrap min-w-max sm:min-w-0">
+      <div className="inline-flex items-center gap-1 p-1 bg-slate-100 rounded-2xl mb-3 whitespace-nowrap min-w-max sm:min-w-0">
+        <BackLink href="/" label="Espaces" className="text-slate-600 hover:bg-white/80 hover:text-[#0e2a52]" />
         {visibleTabs.map(t => {
           const active = t.href === '/crm'
             ? pathname === '/crm'

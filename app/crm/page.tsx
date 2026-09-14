@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react"
 import Image from "next/image"
 import Link from "next/link"
-import { BrandLogo } from "@/components/BrandLogo"
+import { BackLink } from "@/components/BackLink"
 import { ICON_512_PATH } from "@/lib/brand"
 
 type SubLink = { href: string; label: string; desc: string }
@@ -71,21 +71,12 @@ const PRIORITIES: PriorityCard[] = [
 ]
 
 const MODULES: ModuleTile[] = [
-  { href: '/accord',            emoji: '🤝', label: 'Accords',        desc: 'Liste signés',       bg: 'bg-gradient-to-br from-red-500 to-red-700' },
-  { href: '/accord/nouveau',    emoji: '✍️', label: 'Nouvel accord',  desc: 'Créer',              bg: 'bg-gradient-to-br from-rose-400 to-red-500' },
   { href: '/historique',        emoji: '🔔', label: 'Relances',       desc: 'Stop avis/devis',    bg: 'bg-gradient-to-br from-orange-500 to-red-600' },
   { href: '/inspection',        emoji: '📹', label: 'Caméra',         desc: 'Inspection NF',      bg: 'bg-gradient-to-br from-sky-400 to-sky-600' },
-  { href: '/attestation',       emoji: '✅', label: 'Attestation',    desc: 'SPANC',              bg: 'bg-gradient-to-br from-[#a18249] to-[#6e5530]' },
   { href: '/historique',        emoji: '📚', label: 'Historique',     desc: 'Interventions',      bg: 'bg-gradient-to-br from-slate-400 to-slate-600' },
   { href: '/clients',           emoji: '👥', label: 'Clients',        desc: 'Annuaire',           bg: 'bg-gradient-to-br from-teal-500 to-teal-700' },
-  { href: '/statistiques',      emoji: '📊', label: 'Statistiques',   desc: 'Acquisition',        bg: 'bg-gradient-to-br from-rose-500 to-rose-700' },
-  { href: '/comptabilite',      emoji: '💼', label: 'Comptabilité',   desc: 'Bilan & FEC',        bg: 'bg-gradient-to-br from-violet-500 to-violet-700' },
-  { href: '/comptabilite',      emoji: '🪪', label: 'RH',             desc: 'Salariés',           bg: 'bg-gradient-to-br from-fuchsia-400 to-purple-600' },
   { href: '/admin/techniciens', emoji: '👷', label: 'Techniciens',    desc: 'Profils site',       bg: 'bg-gradient-to-br from-orange-400 to-orange-600' },
-  { href: '/login',             emoji: '🔑', label: 'Accès démo',     desc: 'Essai client',       bg: 'bg-gradient-to-br from-amber-500 to-orange-700' },
   { href: '/mail',              emoji: '📧', label: 'Mail',           desc: 'Emails envoyés',     bg: 'bg-gradient-to-br from-cyan-500 to-cyan-700' },
-  { href: '/post-gmb',          emoji: '📍', label: 'Post GMB',       desc: 'Google Business',    bg: 'bg-gradient-to-br from-indigo-500 to-indigo-700' },
-  { href: '/statistiques',      emoji: '🌐', label: 'Connexions',     desc: 'Historique & pays',  bg: 'bg-gradient-to-br from-slate-500 to-slate-700' },
 ]
 
 function BrandWatermark({ className = '' }: { className?: string }) {
@@ -94,9 +85,9 @@ function BrandWatermark({ className = '' }: { className?: string }) {
       src={ICON_512_PATH}
       alt=""
       aria-hidden
-      width={120}
-      height={120}
-      className={`pointer-events-none select-none object-contain opacity-[0.12] ${className}`}
+      width={180}
+      height={180}
+      className={`pointer-events-none select-none object-contain opacity-[0.14] ${className}`}
     />
   )
 }
@@ -110,7 +101,7 @@ function PriorityTile({ card, introClass }: { card: PriorityCard; introClass?: s
         card.fullWidth ? 'col-span-full min-h-[108px] sm:min-h-[118px]' : 'min-h-[148px] sm:min-h-[160px]'
       } ${introClass || ''}`}
     >
-      <BrandWatermark className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-24 h-24 sm:w-32 sm:h-32" />
+      <BrandWatermark className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-32 h-32 sm:w-44 sm:h-44" />
 
       <Link href={card.href} className="absolute inset-0 z-10" aria-label={card.label} />
 
@@ -197,15 +188,8 @@ export default function Home() {
       <header className="sticky top-0 z-20 border-b border-white/10 bg-[#0a1628]/90 backdrop-blur-md pt-[env(safe-area-inset-top)]">
         <div className="max-w-6xl mx-auto px-3 sm:px-5 py-2.5 sm:py-3 flex items-center justify-between gap-3">
           <div className={`flex items-center gap-2 sm:gap-3 min-w-0 ${intro ? 'allo-drop' : ''}`}>
-            <Link href="/" className="shrink-0" aria-label="Retour aux espaces">
-              <BrandLogo
-                variant="full"
-                size={36}
-                priority
-                className="h-8 sm:h-9 w-auto max-w-[160px] sm:max-w-[200px] shrink-0"
-              />
-            </Link>
-            <span className="text-[9px] sm:text-[10px] uppercase tracking-[0.2em] text-white/50 font-semibold shrink-0">
+            <BackLink href="/" label="Espaces" className="text-white hover:bg-white/10" />
+            <span className="text-[10px] sm:text-xs uppercase tracking-[0.16em] text-white/55 font-semibold shrink-0">
               CRM
             </span>
           </div>

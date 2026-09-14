@@ -51,7 +51,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error }, { status })
   }
 
-  let body: { nom?: string; email?: string; telephone?: string; notes?: string }
+  let body: {
+    nom?: string
+    email?: string
+    telephone?: string
+    notes?: string
+    siret?: string
+    adresse?: string
+    code_postal?: string
+    ville?: string
+  }
   try {
     body = await req.json()
   } catch {
@@ -61,13 +70,25 @@ export async function POST(req: NextRequest) {
   const nom = (body.nom || "").trim()
   if (!nom) return NextResponse.json({ error: "Nom du sous-traitant requis" }, { status: 400 })
 
+  const siret = (body.siret || "").replace(/[\s.-]/g, "")
+  const adresseLigne = [
+    (body.adresse || "").trim(),
+    [(body.code_postal || "").trim(), (body.ville || "").trim()].filter(Boolean).join(" "),
+  ].filter(Boolean).join(", ")
+  const notesParts = [
+    /^\d{14}$/.test(siret) ? `SIRET ${siret}` : "",
+    adresseLigne,
+    (body.notes || "").trim(),
+  ].filter(Boolean)
+  const notes = notesParts.join("\n") || null
+
   try {
     const row = await prisma.sousTraitant.create({
       data: {
         nom,
         email: (body.email || "").trim() || null,
         telephone: (body.telephone || "").trim() || null,
-        notes: (body.notes || "").trim() || null,
+        notes,
       },
     })
     return NextResponse.json({

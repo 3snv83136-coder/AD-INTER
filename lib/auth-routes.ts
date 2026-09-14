@@ -22,6 +22,9 @@ const TECH_API_PREFIXES = [
   "/api/notify-devis",
   "/api/proxy-image",
   "/api/health",
+  "/api/communes",
+  "/api/extract",
+  "/api/siret",
 ] as const
 
 export function isTechPageAllowed(pathname: string): boolean {

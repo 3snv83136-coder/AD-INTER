@@ -943,7 +943,12 @@ export default function NouveauPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Code postal</label>
-                  <input value={codePostal} onChange={e => setCodePostal(e.target.value)} placeholder="83000" inputMode="numeric" pattern="[0-9]*" className="w-full border-2 border-slate-200 focus:border-blue-500 outline-none rounded-xl px-4 py-3 text-base transition-colors" />
+                  <VilleCombobox
+                    value={codePostal}
+                    onChange={setCodePostal}
+                    onSelect={(v: VilleVar) => { setVille(v.nom); setCodePostal(v.cp) }}
+                    placeholder="Code postal — toute la France"
+                  />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Date</label>

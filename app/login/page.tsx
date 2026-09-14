@@ -2,7 +2,6 @@
 import { signIn } from "next-auth/react"
 import { useState } from "react"
 import { useRouter } from "next/navigation"
-import { BrandLogo } from "@/components/BrandLogo"
 import { BRAND_NAME } from "@/lib/brand"
 
 /**
@@ -75,22 +74,11 @@ export default function LoginPage() {
           0%,100% { box-shadow: 0 8px 24px rgba(0,0,0,.18), 0 0 0 0 rgba(96,165,250,.0); }
           50%     { box-shadow: 0 8px 24px rgba(0,0,0,.18), 0 0 26px 4px rgba(96,165,250,.45); }
         }
-        @keyframes alloDrop {
-          0%,100% { transform: translateY(0); }
-          50%     { transform: translateY(-7px); }
-        }
         @keyframes alloSheen {
           0%,100% { opacity: .25; transform: translateX(-30%) rotate(8deg); }
           50%     { opacity: .55; transform: translateX(30%) rotate(8deg); }
         }
       `}</style>
-
-      <div className="pointer-events-none absolute inset-0 flex items-center justify-center" aria-hidden>
-        <BrandLogo
-          size={420}
-          className="w-[min(72vw,420px)] h-[min(72vw,420px)] opacity-[0.18] drop-shadow-[0_0_80px_rgba(255,255,255,0.15)]"
-        />
-      </div>
 
       {/* Bulles d'eau qui remontent */}
       <div className="pointer-events-none absolute inset-0" aria-hidden="true">
@@ -137,10 +125,7 @@ export default function LoginPage() {
         style={{ animation: 'alloCardIn .7s cubic-bezier(.2,.8,.2,1) both', boxShadow: '0 24px 60px rgba(0,0,0,.45)' }}
       >
         <div className="mb-7 flex flex-col items-center text-center">
-          <div style={{ animation: 'alloDrop 3s ease-in-out infinite' }}>
-            <BrandLogo variant="full" size={88} priority className="h-auto w-full max-w-[280px] drop-shadow-md" />
-          </div>
-          <h1 className="mt-4 text-xl font-black leading-tight text-[#0e2a52]">
+          <h1 className="text-xl font-black leading-tight text-[#0e2a52]">
             {BRAND_NAME}
           </h1>
           <p className="mt-1.5 text-[11px] font-semibold uppercase tracking-[0.25em] text-slate-400">

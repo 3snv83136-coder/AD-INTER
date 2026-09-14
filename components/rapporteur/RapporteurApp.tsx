@@ -2,13 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
-import { BrandLogo } from "@/components/BrandLogo"
+import { BackLink } from "@/components/BackLink"
 import ClientAutocomplete from "@/components/ClientAutocomplete"
 import VilleCombobox from "@/components/VilleCombobox"
+import { SiretLookup } from "@/components/SiretLookup"
+import { TextoPasteFill } from "@/components/TextoPasteFill"
 import { TYPES_INTERVENTION } from "@/lib/types-intervention"
 import { fmtDateFR, fmtEUR } from "@/lib/format"
 import { BRAND_NAME } from "@/lib/brand"
 import type { Tarif } from "@/lib/types"
+import { CreationSousTraitant } from "@/components/rapporteur/CreationSousTraitant"
 
 type Statut = "planifiee" | "en_cours" | "terminee" | "annulee"
 
@@ -17,6 +20,7 @@ type SousTraitant = {
   nom: string
   email: string | null
   telephone: string | null
+  notes?: string | null
 }
 
 type Row = {
@@ -61,6 +65,7 @@ export default function RapporteurApp({ tarif }: { tarif: Tarif }) {
   const [error, setError] = useState("")
   const [filter, setFilter] = useState<"all" | Statut>("all")
   const [showForm, setShowForm] = useState(false)
+  const [tab, setTab] = useState<"affaires" | "sous-traitants">("affaires")
   const [busyId, setBusyId] = useState("")
 
   const load = useCallback(async () => {
@@ -132,30 +137,61 @@ export default function RapporteurApp({ tarif }: { tarif: Tarif }) {
     <div className="min-h-dvh bg-[#0a1628] text-slate-100">
       <header className="sticky top-0 z-20 border-b border-white/10 bg-[#0a1628]/90 backdrop-blur-md">
         <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <Link href="/" aria-label="Retour aux espaces">
-              <BrandLogo variant="full" size={36} className="h-8 w-auto max-w-[160px]" />
-            </Link>
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+            <BackLink href="/" label="Espaces" className="text-white hover:bg-white/10" />
             <div className="min-w-0">
-              <div className="text-[10px] uppercase tracking-[0.18em] text-amber-400/90 font-bold">
-                Allo Rapporteur d’affaires
+              <div className="text-[11px] uppercase tracking-[0.16em] text-amber-400/90 font-semibold">
+                Rapporteur d’affaires
               </div>
               <p className="text-xs text-white/55 truncate">
                 {tarif.label} · {fmtEUR(tarif.prix_min)} HT
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => setShowForm(true)}
-            className="shrink-0 rounded-xl bg-amber-500 hover:bg-amber-400 text-[#0a1628] font-bold text-sm px-4 py-2"
-          >
-            + Nouvelle affaire
-          </button>
+          {tab === "affaires" ? (
+            <button
+              type="button"
+              onClick={() => setShowForm(true)}
+              className="shrink-0 rounded-xl bg-amber-500 hover:bg-amber-400 text-[#0a1628] font-bold text-sm px-4 py-2"
+            >
+              + Nouvelle affaire
+            </button>
+          ) : null}
         </div>
       </header>
 
       <main className="max-w-5xl mx-auto px-4 py-5 space-y-4">
+        <div className="inline-flex items-center gap-1 p-1 bg-white/10 rounded-2xl">
+          {([
+            { id: "affaires" as const, label: "Affaires" },
+            { id: "sous-traitants" as const, label: "Création sous-traitant" },
+          ]).map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setTab(t.id)}
+              className={`rounded-xl px-4 py-2 text-sm font-bold ${
+                tab === t.id ? "bg-white text-[#0a1628]" : "text-white/70 hover:text-white hover:bg-white/10"
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {error ? (
+          <div className="rounded-xl bg-red-500/15 border border-red-400/30 text-red-100 px-4 py-3 text-sm">
+            {error}
+          </div>
+        ) : null}
+
+        {tab === "sous-traitants" ? (
+          <CreationSousTraitant
+            sts={sts}
+            onCreated={(st) => setSts((prev) => [...prev, st].sort((a, b) => a.nom.localeCompare(b.nom, "fr")))}
+          />
+        ) : (
+          <>
         <div className="flex flex-wrap gap-2">
           {(["all", "planifiee", "en_cours", "terminee"] as const).map((k) => (
             <button
@@ -170,12 +206,6 @@ export default function RapporteurApp({ tarif }: { tarif: Tarif }) {
             </button>
           ))}
         </div>
-
-        {error ? (
-          <div className="rounded-xl bg-red-500/15 border border-red-400/30 text-red-100 px-4 py-3 text-sm">
-            {error}
-          </div>
-        ) : null}
 
         {loading ? (
           <p className="text-white/50 text-center py-16">Chargement…</p>
@@ -254,6 +284,8 @@ export default function RapporteurApp({ tarif }: { tarif: Tarif }) {
               </li>
             ))}
           </ul>
+        )}
+          </>
         )}
       </main>
 
@@ -379,6 +411,33 @@ function NouvelleAffaireModal({
         <div className="p-5 space-y-4">
           {error ? <p className="text-sm text-red-600 font-semibold">{error}</p> : null}
 
+          <TextoPasteFill
+            onFill={(d) => {
+              setClientId(null)
+              if (d.client_nom) setClientNom(d.client_nom)
+              if (d.client_email) setClientEmail(d.client_email)
+              if (d.client_telephone) setClientTel(d.client_telephone)
+              if (d.adresse) setClientAdresse(d.adresse)
+              if (d.code_postal) setClientCP(d.code_postal)
+              if (d.ville) setClientVille(d.ville)
+              if (d.type_intervention && (TYPES_INTERVENTION as readonly string[]).includes(d.type_intervention)) {
+                setTypeIntervention(d.type_intervention)
+              }
+              if (d.date_intervention) setDatePrevue(d.date_intervention)
+              if (d.heure) setHeurePrevue(d.heure)
+              if (d.notes) setNotes(d.notes)
+            }}
+          />
+          <SiretLookup
+            onFound={(c) => {
+              setClientId(null)
+              setClientNom(c.nom)
+              setClientAdresse(c.adresse)
+              setClientCP(c.code_postal)
+              setClientVille(c.ville)
+            }}
+          />
+
           <ClientAutocomplete
             value={clientNom}
             onChange={(v) => { setClientNom(v); setClientId(null) }}
@@ -417,7 +476,14 @@ function NouvelleAffaireModal({
             </label>
             <label className="text-sm">
               <span className="text-xs uppercase text-slate-500">Code postal</span>
-              <input value={clientCP} onChange={(e) => setClientCP(e.target.value)} className="mt-1 w-full border-2 rounded-lg px-3 py-2" />
+              <div className="mt-1">
+                <VilleCombobox
+                  value={clientCP}
+                  onChange={setClientCP}
+                  onSelect={(v) => { setClientVille(v.nom); setClientCP(v.cp) }}
+                  placeholder="Code postal — toute la France"
+                />
+              </div>
             </label>
           </div>
 

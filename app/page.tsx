@@ -1,23 +1,16 @@
 'use client'
 
 import Link from "next/link"
-import { BrandLogo } from "@/components/BrandLogo"
 import { BRAND_NAME } from "@/lib/brand"
 
 export default function HubPage() {
   return (
     <main className="min-h-dvh bg-[#0a1628] text-white flex flex-col">
       <div className="flex-1 flex flex-col items-center justify-center px-4 py-10 gap-10">
-        <div className="text-center space-y-4">
-          <BrandLogo
-            variant="full"
-            size={72}
-            priority
-            className="h-16 sm:h-20 w-auto max-w-[280px] sm:max-w-[360px] mx-auto"
-          />
-          <p className="text-sm sm:text-base text-white/60 font-medium">
+        <div className="text-center space-y-2">
+          <h1 className="text-xl sm:text-2xl font-black leading-tight">
             {BRAND_NAME}
-          </p>
+          </h1>
         </div>
 
         <div className="w-full max-w-3xl grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -29,7 +22,7 @@ export default function HubPage() {
               <div className="text-xs uppercase tracking-[0.2em] font-bold text-white/70">Espace</div>
               <h2 className="mt-2 text-2xl sm:text-3xl font-black leading-tight">Allo CRM</h2>
               <p className="mt-3 text-sm text-white/85 leading-relaxed">
-                Planning, terrain, devis, factures, comptabilité — l’outil interne Allo Débouchage.
+                Planning, terrain, devis, factures — l’outil interne Allo Débouchage.
               </p>
             </div>
             <span className="mt-6 text-sm font-bold text-white/90 group-hover:underline">

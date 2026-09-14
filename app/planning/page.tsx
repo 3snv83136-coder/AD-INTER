@@ -6,6 +6,8 @@ import AppTabs from "@/components/AppTabs"
 import TechNav from "@/components/TechNav"
 import CalendarSubscribePanel from "@/components/CalendarSubscribePanel"
 import VilleCombobox from "@/components/VilleCombobox"
+import { SiretLookup } from "@/components/SiretLookup"
+import { TextoPasteFill } from "@/components/TextoPasteFill"
 import { AGENCES } from "@/lib/agences"
 import { CANAUX_ACQUISITION } from "@/lib/canaux"
 import { fmtDateFR, fmtEUR } from "@/lib/format"
@@ -676,6 +678,23 @@ function NouvelleInterventionModal({
           {/* Client */}
           <section className="space-y-3">
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">Client</h3>
+            <TextoPasteFill
+              onFill={(d) => {
+                setClientId(null)
+                if (d.client_nom) setClientNom(d.client_nom)
+                if (d.client_email) setClientEmail(d.client_email)
+                if (d.client_telephone) setClientTel(d.client_telephone)
+                if (d.adresse) setClientAdresse(d.adresse)
+                if (d.code_postal) setClientCP(d.code_postal)
+                if (d.ville) setClientVille(d.ville)
+                if (d.type_intervention && (TYPES as readonly string[]).includes(d.type_intervention)) {
+                  setTypeIntervention(d.type_intervention)
+                }
+                if (d.date_intervention) setDatePrevue(d.date_intervention)
+                if (d.heure) setHeurePrevue(d.heure)
+                if (d.notes) setNotes(d.notes)
+              }}
+            />
             <SiretLookup
               onFound={(c) => {
                 setClientId(null)
@@ -720,7 +739,17 @@ function NouvelleInterventionModal({
                   />
                 </div>
               </label>
-              <Field label="Code postal" value={clientCP} onChange={setClientCP} placeholder="83000" />
+              <label className="block text-sm">
+                <span className="text-xs uppercase tracking-wide text-slate-500">Code postal</span>
+                <div className="mt-1">
+                  <VilleCombobox
+                    value={clientCP}
+                    onChange={setClientCP}
+                    onSelect={v => { setClientVille(v.nom); setClientCP(v.cp) }}
+                    placeholder="Code postal — toute la France"
+                  />
+                </div>
+              </label>
             </div>
           </section>
 
@@ -744,7 +773,17 @@ function NouvelleInterventionModal({
                     />
                   </div>
                 </label>
-                <Field label="Code postal" value={cpChantier} onChange={setCpChantier} />
+                <label className="block text-sm">
+                  <span className="text-xs uppercase tracking-wide text-slate-500">Code postal</span>
+                  <div className="mt-1">
+                    <VilleCombobox
+                      value={cpChantier}
+                      onChange={setCpChantier}
+                      onSelect={v => { setVilleChantier(v.nom); setCpChantier(v.cp) }}
+                      placeholder="Code postal — toute la France"
+                    />
+                  </div>
+                </label>
               </div>
             )}
           </section>
@@ -853,96 +892,6 @@ function NouvelleInterventionModal({
             {submitting ? 'Création…' : 'Créer & notifier le tech'}
           </button>
         </div>
-      </div>
-    </div>
-  )
-}
-
-// ====================================================================
-// Recherche SIRET (entreprise) — appelle /api/siret/[siret] qui proxy
-// l'API publique recherche-entreprises.api.gouv.fr.
-// ====================================================================
-function SiretLookup({ onFound }: {
-  onFound: (c: { nom: string; adresse: string; code_postal: string; ville: string }) => void
-}) {
-  const [siret, setSiret] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
-  const [info, setInfo] = useState<{ nom: string; activite: string | null } | null>(null)
-
-  async function lookup(value: string) {
-    const cleaned = value.replace(/[\s.-]/g, '')
-    if (!/^\d{14}$/.test(cleaned)) return
-    setLoading(true); setError(''); setInfo(null)
-    try {
-      const res = await fetch(`/api/siret/${cleaned}`, { cache: 'no-store' })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
-      setInfo({ nom: data.nom, activite: data.activite })
-      onFound({
-        nom: data.nom,
-        adresse: data.adresse,
-        code_postal: data.code_postal,
-        ville: data.ville,
-      })
-    } catch (e: any) {
-      setError(e?.message || 'Erreur lookup SIRET')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  return (
-    <div className="bg-blue-50 border-2 border-blue-200 rounded-xl p-3">
-      <label className="block text-sm">
-        <span className="text-xs uppercase tracking-wide text-blue-900 font-bold">🔎 Recherche par SIRET (entreprise)</span>
-        <div className="flex gap-2 mt-1.5">
-          <input
-            inputMode="numeric"
-            value={siret}
-            onChange={e => {
-              const v = e.target.value
-              setSiret(v)
-              setError('')
-              const cleaned = v.replace(/[\s.-]/g, '')
-              // Auto-lookup quand on a 14 chiffres
-              if (/^\d{14}$/.test(cleaned)) lookup(cleaned)
-            }}
-            onPaste={e => {
-              const pasted = e.clipboardData.getData('text').replace(/[\s.-]/g, '')
-              if (/^\d{14}$/.test(pasted)) {
-                e.preventDefault()
-                setSiret(pasted)
-                lookup(pasted)
-              }
-            }}
-            placeholder="14 chiffres — ex: 12345678900012"
-            maxLength={20}
-            className="flex-1 border-2 border-blue-300 focus:border-blue-600 outline-none rounded-lg px-3 py-2 text-sm font-mono bg-white"
-            disabled={loading}
-          />
-          <button
-            type="button"
-            onClick={() => lookup(siret)}
-            disabled={loading || !/^\d{14}$/.test(siret.replace(/[\s.-]/g, ''))}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-sm font-bold disabled:opacity-50"
-          >
-            {loading ? '…' : 'Trouver'}
-          </button>
-        </div>
-      </label>
-      {info && (
-        <div className="mt-2 p-2 bg-emerald-50 border border-emerald-300 rounded-lg text-xs">
-          <div className="font-bold text-emerald-900">✓ {info.nom}</div>
-          {info.activite && <div className="text-emerald-700 mt-0.5">{info.activite}</div>}
-          <div className="text-emerald-700 mt-0.5 italic">Coordonnées remplies automatiquement ci-dessous.</div>
-        </div>
-      )}
-      {error && (
-        <div className="mt-2 text-xs text-red-700 font-semibold">⚠ {error}</div>
-      )}
-      <div className="text-[10px] text-blue-800/70 mt-1.5">
-        Source : recherche-entreprises.api.gouv.fr (gratuit, données publiques INSEE).
       </div>
     </div>
   )

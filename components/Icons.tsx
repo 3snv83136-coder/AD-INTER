@@ -99,6 +99,14 @@ export function HomeIcon({ className, strokeWidth }: IconProps) {
   )
 }
 
+export function ArrowLeftIcon({ className, strokeWidth }: IconProps) {
+  return (
+    <svg {...baseProps(className, strokeWidth)}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
+    </svg>
+  )
+}
+
 export function CheckIcon({ className, strokeWidth }: IconProps) {
   return (
     <svg {...baseProps(className, strokeWidth)}>

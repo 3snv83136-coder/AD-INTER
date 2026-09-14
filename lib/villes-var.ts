@@ -115,8 +115,9 @@ export function normalize(s: string): string {
 export function searchVilles(query: string, limit = 8): VilleVar[] {
   const q = normalize(query)
   if (!q) return []
+  const digits = query.trim().replace(/\s+/g, "")
   return VILLES_VAR
-    .filter(v => normalize(v.nom).includes(q))
+    .filter(v => normalize(v.nom).includes(q) || (digits.length >= 2 && v.cp.startsWith(digits)))
     .sort((a, b) => {
       // priorité : commence par la query
       const an = normalize(a.nom), bn = normalize(b.nom)
