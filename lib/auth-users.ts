@@ -45,25 +45,43 @@ function loadAdmins(): AuthAccount[] {
   return accounts
 }
 
+const DEFAULT_ADMIN_PASSWORDS = ["3110", "1004", "3112", "3005"]
+const DEFAULT_OWNER_PASSWORDS = ["3110", "1004"]
+
 function loadPasswordList(raw: string): string[] {
   return raw
     .split(/[,;]+/)
-    .map((s) => s.trim().replace(/\s+/g, ""))
+    .map((s) => s.trim().replace(/^["']+|["']+$/g, "").replace(/\s+/g, ""))
     .filter(Boolean)
 }
 
+function uniqueCodes(codes: string[]): string[] {
+  return Array.from(new Set(codes.filter(Boolean)))
+}
+
 function loadAdminPasswords(): string[] {
-  return loadPasswordList(process.env.AUTH_ADMIN_PASSWORDS || "")
+  return uniqueCodes([
+    ...DEFAULT_ADMIN_PASSWORDS,
+    ...loadPasswordList(process.env.AUTH_ADMIN_PASSWORDS || ""),
+    ...loadOwnerPasswords(),
+  ])
 }
 
 /** Accès complets : 3110 et 1004 (surcharge possible via AUTH_ADMIN_OWNER_PASSWORDS). */
 function loadOwnerPasswords(): string[] {
-  const fromEnv = loadPasswordList(process.env.AUTH_ADMIN_OWNER_PASSWORDS || "")
-  return fromEnv.length > 0 ? fromEnv : ["3110", "1004"]
+  return uniqueCodes([
+    ...DEFAULT_OWNER_PASSWORDS,
+    ...loadPasswordList(process.env.AUTH_ADMIN_OWNER_PASSWORDS || ""),
+  ])
 }
 
-function passwordMatchesAdmin(password: string | undefined, allowed: string[]): boolean {
-  const needle = (password ?? "").trim().replace(/\s+/g, "")
+export function normalizeAccessCode(value: unknown): string {
+  if (value == null) return ""
+  return String(value).trim().replace(/\s+/g, "")
+}
+
+function passwordMatchesAdmin(password: unknown, allowed: string[]): boolean {
+  const needle = normalizeAccessCode(password)
   if (!needle) return false
   return allowed.some((p) => p === needle)
 }
@@ -143,24 +161,36 @@ export async function verifyCredentials(
   lookupTechnicienId: (login: string) => Promise<string | null>,
   lookupDbAccount?: (login: string) => Promise<DbAccount | null>,
 ): Promise<AuthAccount | null> {
-  const login = username.trim()
-  if (!login) return null
-
-  // 1. Admin bootstrap par variable d'env
+  const login = String(username ?? "").trim()
+  const passCode = normalizeAccessCode(password)
+  const loginCode = normalizeAccessCode(login)
   const admins = loadAdmins()
-  const admin = admins.find(a => a.login.toLowerCase() === login.toLowerCase())
-  if (admin) {
-    const allowed = loadAdminPasswords()
-    if (!passwordMatchesAdmin(password, allowed)) return null
-    const isOwner = passwordMatchesAdmin(password, loadOwnerPasswords())
-    const needle = (password ?? "").trim().replace(/\s+/g, "")
-    return {
-      ...admin,
-      id: isOwner ? `admin-owner-${needle}` : `admin-operateur-${needle}`,
-      role: isOwner ? "admin" : "operateur",
-      accessLabel: formatAccessCode(needle),
+  const allowed = loadAdminPasswords()
+  const adminByName = admins.find(a => a.login.toLowerCase() === login.toLowerCase())
+
+  // 1. Admin bootstrap : identifiant `admin` + code, ou le code seul dans l’identifiant
+  let matchedCode: string | null = null
+  if (adminByName && passwordMatchesAdmin(passCode, allowed)) {
+    matchedCode = passCode
+  } else if (passwordMatchesAdmin(loginCode, allowed)) {
+    if (!passCode || passCode === loginCode || passwordMatchesAdmin(passCode, allowed)) {
+      matchedCode = passwordMatchesAdmin(passCode, allowed) ? passCode : loginCode
     }
   }
+
+  if (matchedCode) {
+    const admin = adminByName || admins[0]
+    if (!admin) return null
+    const isOwner = passwordMatchesAdmin(matchedCode, loadOwnerPasswords())
+    return {
+      ...admin,
+      id: isOwner ? "admin-owner" : "admin-operateur",
+      role: isOwner ? "admin" : "operateur",
+      accessLabel: formatAccessCode(matchedCode),
+    }
+  }
+
+  if (!login) return null
 
   const pwd = password ?? ""
 

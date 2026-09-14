@@ -65,10 +65,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         password: { label: "Mot de passe", type: "password" },
       },
       async authorize(credentials) {
-        const username = credentials?.username as string | undefined
-        const password = credentials?.password as string | undefined
+        const username = credentials?.username == null ? "" : String(credentials.username)
+        const password = credentials?.password == null ? "" : String(credentials.password)
         const account = await verifyCredentials(
-          username || "",
+          username,
           password,
           lookupTechnicienIdByLogin,
           lookupDbAccountByLogin,

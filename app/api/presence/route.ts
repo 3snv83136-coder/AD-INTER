@@ -52,7 +52,9 @@ export async function POST(req: NextRequest) {
     path = null
   }
 
-  const sessionKey = user.id || `${user.role}:${user.accessLabel || user.name || "session"}`
+  const sessionKey = [user.role, user.accessLabel || user.id || user.name || "session"]
+    .filter(Boolean)
+    .join(":")
   const login = (user.name || user.accessLabel || "session").trim()
   const label = presenceDisplayName({
     role: user.role,

@@ -36,8 +36,13 @@ export default function LoginPage() {
     setLoading(true)
     setError('')
     const form = new FormData(e.currentTarget)
-    const username = (form.get('username') as string)?.trim()
+    const username = (form.get('username') as string)?.trim() || ''
     const password = (form.get('password') as string) || ''
+    if (!username) {
+      setError('Identifiant ou mot de passe incorrect.')
+      setLoading(false)
+      return
+    }
     const result = await signIn('credentials', {
       username,
       password,
@@ -137,7 +142,7 @@ export default function LoginPage() {
           <input
             name="username"
             type="text"
-            placeholder="Identifiant"
+            placeholder="Identifiant (admin ou 31 10)"
             autoComplete="username"
             required
             className="w-full rounded-xl border-2 border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/15"
@@ -147,7 +152,6 @@ export default function LoginPage() {
             type="password"
             placeholder="Mot de passe"
             autoComplete="current-password"
-            required
             className="w-full rounded-xl border-2 border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/15"
           />
           {error && (
