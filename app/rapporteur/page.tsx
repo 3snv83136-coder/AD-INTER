@@ -13,8 +13,9 @@ export default async function RapporteurPage() {
         <div className="max-w-md text-center space-y-3">
           <h1 className="text-xl font-black">{BRAND_NAME}</h1>
           <p className="text-white/70 text-sm">
-            Tarif <code className="text-amber-300">{TARIF_COMMISSION_RAPPORTEUR}</code> introuvable.
-            Ajoute-le dans la table <code className="text-amber-300">tarifs</code> puis recharge.
+            Tarif commission rapporteur introuvable : la base n’est pas joignable
+            ou la ligne <code className="text-amber-300">{TARIF_COMMISSION_RAPPORTEUR}</code> manque.
+            Recharge après correction.
           </p>
         </div>
       </main>
