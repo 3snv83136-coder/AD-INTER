@@ -147,6 +147,30 @@ export function parseMontant(raw: unknown): number | null {
   return Math.round(n * 100) / 100
 }
 
+export function parseMontantOptionnel(raw: unknown): { ok: true; value: number | null } | { ok: false } {
+  if (raw == null) return { ok: true, value: null }
+  if (typeof raw === "string" && !raw.trim()) return { ok: true, value: null }
+  const n = parseMontant(raw)
+  if (n == null) return { ok: false }
+  return { ok: true, value: n }
+}
+
+export function parseOuiNon(raw: unknown): boolean | null {
+  if (raw === true || raw === "oui" || raw === "true") return true
+  if (raw === false || raw === "non" || raw === "false") return false
+  return null
+}
+
+export function parseImageDataUrl(raw: unknown): { buf: Buffer; mime: "png" | "jpeg" } | null {
+  if (typeof raw !== "string") return null
+  const compact = raw.trim().replace(/\s+/g, "")
+  const m = /^data:image\/(png|jpe?g);base64,(.+)$/i.exec(compact)
+  if (!m) return null
+  const buf = Buffer.from(m[2], "base64")
+  if (buf.length < 200 || buf.length > 2 * 1024 * 1024) return null
+  return { buf, mime: m[1].toLowerCase() === "png" ? "png" : "jpeg" }
+}
+
 export function jsonObject(value: Prisma.JsonValue | null | undefined): Record<string, unknown> {
   if (value && typeof value === "object" && !Array.isArray(value)) {
     return { ...(value as Record<string, unknown>) }
@@ -158,6 +182,10 @@ export type ApportRapportLu = {
   rapport: string
   montant: number | null
   soumis_at: string | null
+  garantie: boolean | null
+  garantie_motif: string
+  devis_rebouchage: number | null
+  signature_client: string | null
 }
 
 export function readApportRapport(
@@ -169,6 +197,18 @@ export function readApportRapport(
   const rapport = typeof rec.rapport === "string" ? rec.rapport.trim() : ""
   const montant = parseMontant(rec.montant)
   const soumis_at = typeof rec.soumis_at === "string" ? rec.soumis_at : null
-  if (!rapport && montant == null && !soumis_at) return null
-  return { rapport, montant, soumis_at }
+  const garantie = parseOuiNon(rec.garantie)
+  const garantie_motif = typeof rec.garantie_motif === "string" ? rec.garantie_motif.trim() : ""
+  const devis_rebouchage = parseMontant(rec.devis_rebouchage)
+  const signature_client = typeof rec.signature_client === "string" ? rec.signature_client.trim() : ""
+  if (!rapport && montant == null && !soumis_at && garantie == null && !signature_client) return null
+  return {
+    rapport,
+    montant,
+    soumis_at,
+    garantie,
+    garantie_motif,
+    devis_rebouchage,
+    signature_client: signature_client || null,
+  }
 }

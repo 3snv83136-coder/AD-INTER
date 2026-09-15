@@ -60,6 +60,10 @@ type Row = {
   apport_rapport: string | null
   apport_montant: number | null
   apport_soumis_at: string | null
+  apport_garantie: boolean | null
+  apport_garantie_motif: string | null
+  apport_devis_rebouchage: number | null
+  apport_signature_client: string | null
   pris_en_charge_at: string | null
   has_contrat: boolean
 }
@@ -544,6 +548,36 @@ function RapportCard({ row }: { row: Row }) {
       ) : (
         <p className="text-sm text-slate-400">Pas encore de rapport écrit.</p>
       )}
+      {row.apport_garantie != null ? (
+        <div className="rounded-xl border border-slate-100 px-3 py-2 text-sm">
+          <p className="font-bold text-[#0e2a52]">
+            Garantie : {row.apport_garantie ? "Oui" : "Non"}
+          </p>
+          {row.apport_garantie_motif ? (
+            <p className="text-slate-600 mt-0.5 whitespace-pre-line">{row.apport_garantie_motif}</p>
+          ) : null}
+        </div>
+      ) : null}
+      {row.apport_devis_rebouchage != null ? (
+        <p className="text-sm font-semibold">
+          Devis rebouchage : {fmtEUR(row.apport_devis_rebouchage)}
+        </p>
+      ) : null}
+      {row.apport_signature_client ? (
+        <figure>
+          <p className="text-[11px] uppercase tracking-wide text-slate-400 font-bold">Signature client</p>
+          <div className="relative mt-1 h-24 w-full max-w-xs rounded-xl overflow-hidden bg-white border border-slate-200">
+            <Image
+              src={row.apport_signature_client}
+              alt="Signature du client"
+              fill
+              className="object-contain"
+              sizes="320px"
+              unoptimized
+            />
+          </div>
+        </figure>
+      ) : null}
       <div className="flex flex-wrap gap-2">
         {row.has_contrat ? <ContratSousTraitanceLink interventionId={row.id} /> : null}
         {row.rapporteur_facture_id ? (

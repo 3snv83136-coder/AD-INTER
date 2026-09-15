@@ -10,9 +10,13 @@ import {
   PHOTO_SLOT_AVANT,
   jsonObject,
   loadApportContext,
+  parseImageDataUrl,
   parseMontant,
+  parseMontantOptionnel,
+  parseOuiNon,
   photoUrlForSlot,
 } from "@/lib/apport"
+import { blobPaths, uploadBlob } from "@/lib/storage"
 import { getParametre } from "@/lib/parametres"
 import { cloturerRapporteurIntervention } from "@/lib/rapporteur"
 
@@ -66,7 +70,14 @@ export async function POST(req: NextRequest, { params }: Params) {
     )
   }
 
-  let body: { rapport?: unknown; montant?: unknown }
+  let body: {
+    rapport?: unknown
+    montant?: unknown
+    garantie?: unknown
+    garantie_motif?: unknown
+    devis_rebouchage?: unknown
+    signature_client?: unknown
+  }
   try {
     body = await req.json()
   } catch {
@@ -81,6 +92,22 @@ export async function POST(req: NextRequest, { params }: Params) {
   if (montant == null) {
     return NextResponse.json({ error: "Montant de l’intervention invalide." }, { status: 400 })
   }
+  const garantie = parseOuiNon(body.garantie)
+  if (garantie == null) {
+    return NextResponse.json({ error: "Indique si la garantie s’applique (oui ou non)." }, { status: 400 })
+  }
+  const garantieMotif = typeof body.garantie_motif === "string" ? body.garantie_motif.trim() : ""
+  if (!garantie && garantieMotif.length < 4) {
+    return NextResponse.json({ error: "Explique pourquoi il n’y a pas de garantie." }, { status: 400 })
+  }
+  const devisParse = parseMontantOptionnel(body.devis_rebouchage)
+  if (!devisParse.ok) {
+    return NextResponse.json({ error: "Montant du devis de rebouchage invalide." }, { status: 400 })
+  }
+  const sig = parseImageDataUrl(body.signature_client)
+  if (!sig) {
+    return NextResponse.json({ error: "La signature du client est obligatoire." }, { status: 400 })
+  }
 
   const avant = photoUrlForSlot(loaded.ctx.photos_urls, loaded.ctx.photos_legendes, PHOTO_SLOT_AVANT)
   const apres = photoUrlForSlot(loaded.ctx.photos_urls, loaded.ctx.photos_legendes, PHOTO_SLOT_APRES)
@@ -93,11 +120,27 @@ export async function POST(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "Service indisponible" }, { status: 503 })
   }
 
+  let signatureUrl: string
+  try {
+    signatureUrl = await uploadBlob({
+      pathname: blobPaths.signatureClientApport(loaded.ctx.interventionId),
+      body: sig.buf,
+      contentType: sig.mime === "png" ? "image/png" : "image/jpeg",
+    })
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return NextResponse.json({ error: `Signature impossible à enregistrer : ${msg}` }, { status: 502 })
+  }
+
   const nextJson: Prisma.InputJsonValue = {
     ...jsonObject(loaded.ctx.rapport_json),
     apport: {
       rapport,
       montant,
+      garantie,
+      garantie_motif: garantieMotif || null,
+      devis_rebouchage: devisParse.value,
+      signature_client: signatureUrl,
       soumis_at: new Date().toISOString(),
     },
   }
@@ -120,6 +163,10 @@ export async function POST(req: NextRequest, { params }: Params) {
       affaire: loaded.ctx.affaire,
       rapport,
       montant,
+      garantie,
+      garantieMotif,
+      devisRebouchage: devisParse.value,
+      signatureClient: signatureUrl,
       photoAvant: avant,
       photoApres: apres,
       factureNumero: cloture.numero,
@@ -146,6 +193,10 @@ async function notifyAlloDebouchage(opts: {
   }
   rapport: string
   montant: number
+  garantie: boolean
+  garantieMotif: string
+  devisRebouchage: number | null
+  signatureClient: string
   photoAvant: string
   photoApres: string
   factureNumero: string | null
@@ -157,6 +208,9 @@ async function notifyAlloDebouchage(opts: {
   const resend = new Resend(resendKey)
   const dossierUrl = `${getAppBaseUrl()}/rapporteur`
   const montantFmt = opts.montant.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const devisFmt = opts.devisRebouchage != null
+    ? opts.devisRebouchage.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    : null
   await resend.emails.send({
     from: `${BRAND_NAME} <${getResendFromEmail()}>`,
     to: getResendRecipient(to),
@@ -168,10 +222,14 @@ async function notifyAlloDebouchage(opts: {
         <li><strong>Type :</strong> ${escapeHtml(opts.affaire.type_intervention || "—")}</li>
         <li><strong>Adresse :</strong> ${escapeHtml(opts.affaire.adresse || "—")}</li>
         <li><strong>Montant intervention :</strong> ${escapeHtml(montantFmt)} €</li>
+        <li><strong>Garantie :</strong> ${opts.garantie ? "Oui" : "Non"}${opts.garantieMotif ? ` — ${escapeHtml(opts.garantieMotif)}` : ""}</li>
+        ${devisFmt ? `<li><strong>Devis rebouchage :</strong> ${escapeHtml(devisFmt)} €</li>` : ""}
         ${opts.factureNumero ? `<li><strong>Facture commission :</strong> ${escapeHtml(opts.factureNumero)}</li>` : ""}
       </ul>
       <p><strong>Rapport</strong></p>
       <p>${escapeHtml(opts.rapport).replace(/\n/g, "<br/>")}</p>
+      <p><strong>Signature client</strong></p>
+      <p><img src="${escapeHtml(opts.signatureClient)}" alt="Signature client" width="240" /></p>
       <p>
         <a href="${escapeHtml(opts.photoAvant)}">Photo avant</a>
         ·

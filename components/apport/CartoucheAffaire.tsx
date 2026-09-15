@@ -96,13 +96,15 @@ export function CartoucheAffaire({ affaire }: { affaire: CartoucheAffaireData })
       </div>
 
       {affaire.client_nom ? (
-        <p className="text-base font-extrabold text-slate-900">{affaire.client_nom}</p>
+        <p className="text-3xl font-black text-slate-900 leading-tight">{affaire.client_nom}</p>
+      ) : null}
+
+      {affaire.ville ? (
+        <p className="text-2xl font-black text-[#0e2a52] leading-tight">{affaire.ville}</p>
       ) : null}
 
       {affaire.adresse ? (
         <p className="text-sm text-slate-700 leading-snug">{affaire.adresse}</p>
-      ) : affaire.ville ? (
-        <p className="text-sm text-slate-700 leading-snug">{affaire.ville}</p>
       ) : null}
 
       {email ? (

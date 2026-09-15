@@ -233,6 +233,10 @@ export async function GET(req: NextRequest) {
         apport_rapport: apport?.rapport || null,
         apport_montant: apport?.montant ?? prix,
         apport_soumis_at: apport?.soumis_at || null,
+        apport_garantie: apport?.garantie ?? null,
+        apport_garantie_motif: apport?.garantie_motif || null,
+        apport_devis_rebouchage: apport?.devis_rebouchage ?? null,
+        apport_signature_client: apport?.signature_client || null,
         pris_en_charge_at: contratMap[i.id] || null,
         has_contrat: Boolean(contratMap[i.id]),
       }

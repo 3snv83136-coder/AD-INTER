@@ -1,8 +1,9 @@
 'use client'
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react"
 import { AcceptationSousTraitance } from "@/components/apport/AcceptationSousTraitance"
 import { CartoucheAffaire } from "@/components/apport/CartoucheAffaire"
+import SignatureCanvas from "@/components/accord/SignatureCanvas"
 import { BRAND_NAME } from "@/lib/brand"
 import { composeConsignesIntervention } from "@/lib/consignes-intervention"
 
@@ -53,6 +54,10 @@ export function ApportForm({ token, preview = false }: { token: string; preview?
   const [sent, setSent] = useState(false)
   const [rapport, setRapport] = useState("")
   const [montant, setMontant] = useState("")
+  const [garantie, setGarantie] = useState<boolean | null>(null)
+  const [garantieMotif, setGarantieMotif] = useState("")
+  const [devisRebouchage, setDevisRebouchage] = useState("")
+  const [signatureClient, setSignatureClient] = useState<string | null>(null)
   const [avantUrl, setAvantUrl] = useState<string | null>(null)
   const [apresUrl, setApresUrl] = useState<string | null>(null)
   const [avantLocal, setAvantLocal] = useState<string | null>(null)
@@ -135,7 +140,7 @@ export function ApportForm({ token, preview = false }: { token: string; preview?
   }
 
   async function handleSubmit() {
-    if (!avantUrl || !apresUrl || !rapport.trim() || !montant.trim()) return
+    if (!canSend) return
     setSubmitting(true)
     setError("")
     if (preview) {
@@ -147,7 +152,14 @@ export function ApportForm({ token, preview = false }: { token: string; preview?
       const res = await fetch(`/api/apport/${encodeURIComponent(token)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rapport, montant }),
+        body: JSON.stringify({
+          rapport,
+          montant,
+          garantie,
+          garantie_motif: garantieMotif,
+          devis_rebouchage: devisRebouchage,
+          signature_client: signatureClient,
+        }),
       })
       const data = await res.json() as { error?: string; already?: boolean }
       if (res.status === 409 || data.already) {
@@ -164,7 +176,17 @@ export function ApportForm({ token, preview = false }: { token: string; preview?
     }
   }
 
-  const canSend = Boolean(avantUrl && apresUrl && rapport.trim().length >= 8 && montant.trim() && !uploading && !submitting)
+  const canSend = Boolean(
+    avantUrl
+    && apresUrl
+    && rapport.trim().length >= 8
+    && montant.trim()
+    && garantie !== null
+    && (garantie || garantieMotif.trim().length >= 4)
+    && signatureClient
+    && !uploading
+    && !submitting,
+  )
 
   return (
     <main className="min-h-dvh bg-[#0a1628] text-slate-100 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
@@ -249,6 +271,65 @@ export function ApportForm({ token, preview = false }: { token: string; preview?
                   />
                 </label>
 
+                <section className="rounded-2xl bg-white text-slate-800 p-5 space-y-3">
+                  <p className="text-xs uppercase tracking-wide text-slate-400 font-semibold">Garantie</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setGarantie(true)}
+                      className={`rounded-xl border-2 py-3 font-bold ${
+                        garantie === true ? "border-emerald-500 bg-emerald-50 text-emerald-900" : "border-slate-200"
+                      }`}
+                    >
+                      Oui
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setGarantie(false)}
+                      className={`rounded-xl border-2 py-3 font-bold ${
+                        garantie === false ? "border-amber-500 bg-amber-50 text-amber-950" : "border-slate-200"
+                      }`}
+                    >
+                      Non
+                    </button>
+                  </div>
+                  <label className="block">
+                    <span className="text-xs text-slate-500 font-semibold">
+                      {garantie === false ? "Pourquoi pas de garantie ?" : "Précision (durée, exclusion…)"}
+                    </span>
+                    <textarea
+                      value={garantieMotif}
+                      onChange={(e) => setGarantieMotif(e.target.value)}
+                      rows={2}
+                      className="mt-1 w-full border-2 rounded-lg px-3 py-2 text-sm"
+                      placeholder={garantie === false ? "Ex. travail non couvert, pièce hors garantie…" : "Ex. 12 mois sur le débouchage"}
+                    />
+                  </label>
+                </section>
+
+                <label className="block rounded-2xl bg-white text-slate-800 p-5">
+                  <span className="text-xs uppercase tracking-wide text-slate-400 font-semibold">
+                    Devis supplémentaire — rebouchage (€)
+                  </span>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Si un rebouchage est à prévoir, indique le montant du devis. Laisse vide sinon.
+                  </p>
+                  <input
+                    inputMode="decimal"
+                    value={devisRebouchage}
+                    onChange={(e) => setDevisRebouchage(e.target.value)}
+                    className="mt-2 w-full border-2 rounded-lg px-3 py-2 text-lg font-bold"
+                    placeholder="0,00"
+                  />
+                </label>
+
+                <section className="rounded-2xl bg-white text-slate-800 p-5">
+                  <p className="text-xs uppercase tracking-wide text-slate-400 font-semibold mb-2">
+                    Signature du client
+                  </p>
+                  <SignatureCanvas onChange={setSignatureClient} hint="Faire signer le client dans le cadre" />
+                </section>
+
                 <button
                   type="button"
                   disabled={!canSend}
@@ -277,8 +358,21 @@ function PhotoSlot({
   busy: boolean
   onFile: (file: File) => void
 }) {
+  const cameraRef = useRef<HTMLInputElement>(null)
+  const galleryRef = useRef<HTMLInputElement>(null)
+
+  function pick(input: HTMLInputElement | null) {
+    if (!busy) input?.click()
+  }
+
+  function onPick(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (file) onFile(file)
+    e.target.value = ""
+  }
+
   return (
-    <label className="block rounded-2xl bg-white text-slate-800 p-5 cursor-pointer">
+    <div className="rounded-2xl bg-white text-slate-800 p-5">
       <span className="text-xs uppercase tracking-wide text-slate-400 font-semibold">{label}</span>
       {preview ? (
         // Prévisualisation locale / blob : next/image ne gère pas les object URL.
@@ -286,21 +380,44 @@ function PhotoSlot({
         <img src={preview} alt="" className="mt-3 w-full h-48 object-cover rounded-xl bg-slate-100" />
       ) : (
         <div className="mt-3 h-48 rounded-xl border-2 border-dashed border-slate-300 flex items-center justify-center text-slate-400 text-sm font-semibold">
-          {busy ? "Envoi…" : "Appuyer pour photographier"}
+          {busy ? "Envoi…" : "Photo avant / après"}
         </div>
       )}
       <input
+        ref={cameraRef}
         type="file"
         accept="image/*"
         capture="environment"
         className="sr-only"
         disabled={busy}
-        onChange={(e) => {
-          const file = e.target.files?.[0]
-          if (file) onFile(file)
-          e.target.value = ""
-        }}
+        onChange={onPick}
       />
-    </label>
+      <input
+        ref={galleryRef}
+        type="file"
+        accept="image/*"
+        className="sr-only"
+        disabled={busy}
+        onChange={onPick}
+      />
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => pick(cameraRef.current)}
+          className="rounded-xl bg-[#0e2a52] hover:bg-[#163a6e] text-white font-bold text-sm py-3 px-3 disabled:opacity-40"
+        >
+          Prendre la photo
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => pick(galleryRef.current)}
+          className="rounded-xl border-2 border-[#0e2a52] text-[#0e2a52] font-bold text-sm py-3 px-3 disabled:opacity-40"
+        >
+          Photothèque
+        </button>
+      </div>
+    </div>
   )
 }

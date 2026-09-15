@@ -72,8 +72,11 @@ export function AcceptationSousTraitance({
             {teaser.type_intervention || "Intervention"}
           </p>
           <p className="text-sm text-slate-600 mt-0.5">
-            {[fmtDateFR(teaser.date_prevue), teaser.heure_prevue, teaser.ville].filter(Boolean).join(" · ")}
+            {[fmtDateFR(teaser.date_prevue), teaser.heure_prevue].filter(Boolean).join(" · ")}
           </p>
+          {teaser.ville ? (
+            <p className="text-2xl font-black text-[#0e2a52] leading-tight mt-2">{teaser.ville}</p>
+          ) : null}
         </div>
         <NotesIntervention notes={teaser.notes} />
         <p className="text-xs text-slate-400">
@@ -83,7 +86,7 @@ export function AcceptationSousTraitance({
 
       <section className="rounded-2xl bg-white text-slate-800 p-5 space-y-3">
         <h2 className="font-black text-[#0e2a52]">{CGU_SOUS_TRAITANCE_TITRE}</h2>
-        <div className="max-h-56 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
+        <div className="max-h-72 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
           {CGU_SOUS_TRAITANCE_PARAGRAPHES.map((p) => (
             <p key={p.slice(0, 40)} className="text-xs text-slate-600 leading-relaxed">{p}</p>
           ))}
