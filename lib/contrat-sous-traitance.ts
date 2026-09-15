@@ -1,7 +1,5 @@
 import crypto from "crypto"
-import { renderToBuffer } from "@react-pdf/renderer"
 import { Resend } from "resend"
-import { buildContratDocument } from "@/components/apport/ContratSousTraitancePDF"
 import { BRAND_NAME, CONTACT_EMAIL } from "@/lib/brand"
 import { EMAIL_RE, escapeHtml, getResendFromEmail, getResendRecipient } from "@/lib/email-utils"
 import { getPrismaOrNull } from "@/lib/db"
@@ -9,6 +7,7 @@ import { getAppBaseUrl } from "@/lib/apport-token"
 import { getParametre, getTelPrincipal } from "@/lib/parametres"
 import { parseSousTraitantNotes } from "@/lib/sous-traitant-notes"
 import { CGU_SOUS_TRAITANCE_VERSION } from "@/lib/sous-traitance-cgu"
+import { renderContratPdf } from "@/lib/render-contrat-pdf"
 import { blobPaths, uploadBlob } from "@/lib/storage"
 
 export type AcceptationInput = {
@@ -33,11 +32,12 @@ export type AcceptationErr = {
 }
 
 function parseSignature(dataUrl: string): { buf: Buffer; mime: "png" | "jpeg" } | null {
-  const m = /^data:image\/(png|jpeg);base64,(.+)$/.exec(dataUrl.trim())
+  const compact = dataUrl.trim().replace(/\s+/g, "")
+  const m = /^data:image\/(png|jpe?g);base64,(.+)$/i.exec(compact)
   if (!m) return null
   const buf = Buffer.from(m[2], "base64")
   if (buf.length < 200 || buf.length > 2 * 1024 * 1024) return null
-  return { buf, mime: m[1] === "jpeg" ? "jpeg" : "png" }
+  return { buf, mime: m[1].toLowerCase() === "png" ? "png" : "jpeg" }
 }
 
 function fmtDateHeureFR(d: Date): string {
@@ -124,27 +124,24 @@ export async function accepterSousTraitance(
 
   let pdfBuf: Buffer
   try {
-    pdfBuf = Buffer.from(
-      await renderToBuffer(
-        buildContratDocument({
-          reference: interv.reference,
-          signataireNom: interv.sousTraitant.nom,
-          siret: parsed.siret || null,
-          telephone: tel,
-          typeIntervention: interv.type_intervention,
-          ville: interv.ville,
-          datePrevue,
-          accepteAt: fmtDateHeureFR(accepteAt),
-          preuveHash,
-          signatureSrc: { data: sig.buf, format: sig.mime === "jpeg" ? "jpg" : "png" },
-          ip: input.ip,
-        }) as Parameters<typeof renderToBuffer>[0],
-      ),
-    )
+    pdfBuf = await renderContratPdf({
+      reference: interv.reference,
+      signataireNom: interv.sousTraitant.nom,
+      siret: parsed.siret || null,
+      telephone: tel,
+      typeIntervention: interv.type_intervention,
+      ville: interv.ville,
+      datePrevue,
+      accepteAt: fmtDateHeureFR(accepteAt),
+      preuveHash,
+      signaturePng: sig.buf,
+      ip: input.ip,
+    })
   } catch (e) {
+    console.error("[contrat-sous-traitance pdf]", e)
     return {
       ok: false,
-      error: `Génération du contrat impossible : ${e instanceof Error ? e.message : "erreur"}`,
+      error: "Génération du contrat impossible. Réessaie dans un instant.",
       status: 500,
     }
   }
