@@ -64,6 +64,7 @@ type InterventionDetail = {
   avis_relance_at: string | null
   avis_recu: boolean | null
   photos_legendes: string[] | null
+  flux?: string | null
   created_at: string
   updated_at: string
 }
@@ -506,7 +507,7 @@ export default function InterventionDetailPage({ params }: { params: { id: strin
                   ✕ Annuler
                 </button>
               )}
-              {canDelete && (
+              {canDelete && intervention.flux !== "rapporteur" && (
               <button
                 onClick={hardDelete}
                 disabled={actionInProgress}

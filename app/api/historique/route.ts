@@ -39,6 +39,7 @@ export async function GET(req: NextRequest) {
           rapport_json: true,
           photos_urls: true,
           pdf_rapport_url: true,
+          flux: true,
         },
         orderBy: { created_at: 'desc' },
         take: limit,

@@ -5,6 +5,7 @@ import { cascadeDeleteDocument } from "@/lib/cascadeDelete"
 import { annulerRelancesFacture } from "@/lib/facture-relance"
 import { getSessionUser } from "@/lib/intervention-access"
 import { canEditDevis, requireFullAdmin } from "@/lib/permissions"
+import { FLUX_RAPPORTEUR } from "@/lib/rapporteur"
 
 export const dynamic = 'force-dynamic'
 
@@ -100,6 +101,26 @@ export async function DELETE(
   if (denied) return denied
   const id = ctx.params.id
   if (!id) return NextResponse.json({ error: 'id manquant' }, { status: 400 })
+
+  const prisma = getPrismaOrNull()
+  if (prisma) {
+    const doc = await prisma.document.findUnique({
+      where: { id },
+      select: { intervention_id: true },
+    })
+    if (doc?.intervention_id) {
+      const interv = await prisma.intervention.findUnique({
+        where: { id: doc.intervention_id },
+        select: { flux: true },
+      })
+      if (interv?.flux === FLUX_RAPPORTEUR) {
+        return NextResponse.json(
+          { error: 'Une affaire rapporteur ne peut pas être supprimée. Tu peux la modifier pour changer le sous-traitant.' },
+          { status: 409 },
+        )
+      }
+    }
+  }
 
   const result = await cascadeDeleteDocument(id)
 

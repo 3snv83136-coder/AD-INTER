@@ -33,6 +33,7 @@ type Intervention = {
   rapport_json: any
   photos_urls: string[] | null
   has_rapport: boolean
+  flux?: string | null
 }
 
 type Document = {
@@ -171,6 +172,10 @@ export default function HistoriquePage() {
 
   const showInterventions = tab === 'all' || tab === 'interventions'
   const showDocuments = tab !== 'interventions'
+  const rapporteurIds = useMemo(
+    () => new Set(interventions.filter((i) => i.flux === 'rapporteur').map((i) => i.id)),
+    [interventions],
+  )
 
   // Stats agrégées (header)
   const stats = useMemo(() => {
@@ -318,7 +323,7 @@ export default function HistoriquePage() {
                         </div>
                       </td>
                       <td className="px-2 py-3 text-center">
-                        {canDelete ? (
+                        {canDelete && i.flux !== "rapporteur" ? (
                         <button
                           type="button"
                           onClick={() => handleDeleteIntervention(i)}
@@ -402,7 +407,7 @@ export default function HistoriquePage() {
                         </div>
                       </td>
                       <td className="px-2 py-3 text-center">
-                        {canDelete ? (
+                        {canDelete && !(d.intervention_id && rapporteurIds.has(d.intervention_id)) ? (
                         <button
                           type="button"
                           onClick={() => handleDeleteDoc(d)}

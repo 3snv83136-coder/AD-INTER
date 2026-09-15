@@ -24,6 +24,7 @@ type RapportRow = {
   client_nom: string | null
   client_email: string | null
   client_ville: string | null
+  flux?: string | null
 }
 
 function fmtDate(iso: string | null | undefined): string {
@@ -251,7 +252,7 @@ export default function RapportsPage() {
                     className="px-3 py-1.5 text-xs rounded-lg bg-[#0e2a52] text-white hover:bg-[#0a1f3d]"
                   >✏️ Modifier</button>
                   )}
-                  {canDelete && (
+                  {canDelete && r.flux !== "rapporteur" && (
                   <button
                     onClick={() => supprimerRapport(r)}
                     disabled={deletingId === r.id}

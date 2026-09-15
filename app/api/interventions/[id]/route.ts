@@ -2,9 +2,11 @@ import { NextRequest, NextResponse } from "next/server"
 import { Prisma } from "@prisma/client"
 import { getSessionUser, assertInterventionAccess } from "@/lib/intervention-access"
 import { getPrismaOrNull, dbNotConfiguredResponse } from "@/lib/db"
+import { patchClient } from "@/lib/db-helpers"
 import { isCanalAcquisition } from "@/lib/canaux"
 import { cascadeDeleteIntervention } from "@/lib/cascadeDelete"
 import { canEditIntervention, requireFullAdmin } from "@/lib/permissions"
+import { FLUX_RAPPORTEUR } from "@/lib/rapporteur"
 
 export const dynamic = 'force-dynamic'
 
@@ -127,7 +129,25 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (!access.ok) {
     return NextResponse.json({ error: access.error }, { status: access.status })
   }
-  if (user?.role && !canEditIntervention(user.role) && user.role !== "tech") {
+
+  const existing = await prisma.intervention.findUnique({
+    where: { id: params.id },
+    select: {
+      flux: true,
+      sous_traitant_id: true,
+      rapporteur_facture_id: true,
+      statut: true,
+      client_id: true,
+    },
+  })
+  if (!existing) return NextResponse.json({ error: 'Intervention introuvable' }, { status: 404 })
+
+  const isRapporteur = existing.flux === FLUX_RAPPORTEUR
+  if (isRapporteur) {
+    if (user?.role === "tech") {
+      return NextResponse.json({ error: "Cette action est réservée à l’administrateur." }, { status: 403 })
+    }
+  } else if (user?.role && !canEditIntervention(user.role) && user.role !== "tech") {
     return NextResponse.json({ error: "Cette action est réservée à l’administrateur." }, { status: 403 })
   }
 
@@ -172,6 +192,46 @@ export async function PUT(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'Statut invalide' }, { status: 400 })
   }
 
+  if ('sous_traitant_id' in body) {
+    if (!isRapporteur) {
+      return NextResponse.json({ error: 'Le sous-traitant n’est modifiable que pour une affaire rapporteur' }, { status: 400 })
+    }
+    if (existing.rapporteur_facture_id) {
+      return NextResponse.json(
+        { error: 'Impossible de changer le sous-traitant : la facture de commission est déjà éditée.' },
+        { status: 409 },
+      )
+    }
+    const stId = typeof body.sous_traitant_id === 'string' ? body.sous_traitant_id.trim() : ''
+    if (!stId) {
+      return NextResponse.json({ error: 'Sous-traitant requis' }, { status: 400 })
+    }
+    const st = await prisma.sousTraitant.findUnique({ where: { id: stId }, select: { id: true } })
+    if (!st) {
+      return NextResponse.json({ error: 'Sous-traitant introuvable' }, { status: 404 })
+    }
+    if (stId !== existing.sous_traitant_id) {
+      update.sousTraitant = { connect: { id: stId } }
+      update.rapporteur_envoye_at = null
+      if (existing.statut === 'en_cours' && !('statut' in update)) {
+        update.statut = 'planifiee'
+      }
+    }
+  }
+
+  if (isRapporteur && body.client && typeof body.client === 'object' && existing.client_id) {
+    const c = body.client as Record<string, unknown>
+    const str = (k: string): string | null => (typeof c[k] === 'string' ? c[k] : null)
+    await patchClient(existing.client_id, {
+      nom: str('nom'),
+      email: str('email'),
+      telephone: str('telephone'),
+      adresse: str('adresse'),
+      code_postal: str('code_postal'),
+      ville: str('ville'),
+    })
+  }
+
   if ('canal_acquisition' in update) {
     const v = update.canal_acquisition
     update.canal_acquisition = (v === null || v === '') ? null : (isCanalAcquisition(v) ? v : null)
@@ -182,7 +242,9 @@ export async function PUT(req: NextRequest, { params }: Params) {
   }
 
   if (Object.keys(update).length === 0) {
-    return NextResponse.json({ error: 'Aucun champ à mettre à jour' }, { status: 400 })
+    const current = await prisma.intervention.findUnique({ where: { id: params.id } })
+    if (!current) return NextResponse.json({ error: 'Intervention introuvable' }, { status: 404 })
+    return NextResponse.json({ intervention: serializeIntervention(current as unknown as Record<string, unknown>) })
   }
 
   try {
@@ -204,6 +266,18 @@ export async function DELETE(req: NextRequest, { params }: Params) {
   if (!prisma) {
     const { error, status } = dbNotConfiguredResponse()
     return NextResponse.json({ error }, { status })
+  }
+
+  const existing = await prisma.intervention.findUnique({
+    where: { id: params.id },
+    select: { flux: true },
+  })
+  if (!existing) return NextResponse.json({ error: 'Intervention introuvable' }, { status: 404 })
+  if (existing.flux === FLUX_RAPPORTEUR) {
+    return NextResponse.json(
+      { error: 'Une affaire rapporteur ne peut pas être supprimée. Tu peux la modifier pour changer le sous-traitant.' },
+      { status: 409 },
+    )
   }
 
   const url = new URL(req.url)

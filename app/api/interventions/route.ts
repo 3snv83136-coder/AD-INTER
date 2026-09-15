@@ -143,7 +143,9 @@ export async function GET(req: NextRequest) {
         rapporteur_envoye_at: true, rapporteur_facture_id: true,
         created_at: true, updated_at: true,
       },
-      orderBy: [{ date_prevue: { sort: 'asc', nulls: 'last' } }, { heure_prevue: { sort: 'asc', nulls: 'last' } }],
+      orderBy: fluxParam === FLUX_RAPPORTEUR
+        ? [{ created_at: 'desc' }]
+        : [{ date_prevue: { sort: 'asc', nulls: 'last' } }, { heure_prevue: { sort: 'asc', nulls: 'last' } }],
       take: limit,
     })
 

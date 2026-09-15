@@ -38,6 +38,7 @@ type Row = {
   client_nom: string | null
   client_email: string | null
   client_telephone: string | null
+  client_id: string | null
   sous_traitant_id: string | null
   sous_traitant_nom: string | null
   sous_traitant_email: string | null
@@ -58,13 +59,19 @@ function fmtHeure(t: string | null): string {
   return t.slice(0, 5)
 }
 
+function canReopenAffaire(row: Row): boolean {
+  return row.statut !== "terminee" && row.statut !== "annulee" && !row.rapporteur_facture_id
+}
+
 export default function RapporteurApp({ tarif }: { tarif: Tarif }) {
   const [rows, setRows] = useState<Row[]>([])
   const [sts, setSts] = useState<SousTraitant[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
   const [filter, setFilter] = useState<"all" | Statut>("all")
+  const [stFilter, setStFilter] = useState("")
   const [showForm, setShowForm] = useState(false)
+  const [editing, setEditing] = useState<Row | null>(null)
   const [tab, setTab] = useState<"affaires" | "sous-traitants">("affaires")
   const [busyId, setBusyId] = useState("")
 
@@ -92,10 +99,25 @@ export default function RapporteurApp({ tarif }: { tarif: Tarif }) {
     void load()
   }, [load])
 
-  const filtered = useMemo(
-    () => (filter === "all" ? rows : rows.filter((r) => r.statut === filter)),
-    [rows, filter],
-  )
+  const filtered = useMemo(() => {
+    if (!stFilter) return []
+    return rows.filter((r) => {
+      if (r.sous_traitant_id !== stFilter) return false
+      if (filter !== "all" && r.statut !== filter) return false
+      return true
+    })
+  }, [rows, filter, stFilter])
+
+  const stCounts = useMemo(() => {
+    const counts: Record<string, number> = {}
+    for (const r of rows) {
+      if (!r.sous_traitant_id) continue
+      counts[r.sous_traitant_id] = (counts[r.sous_traitant_id] || 0) + 1
+    }
+    return counts
+  }, [rows])
+
+  const selectedSt = sts.find((s) => s.id === stFilter) || null
 
   async function envoyer(id: string) {
     setBusyId(id)
@@ -151,7 +173,10 @@ export default function RapporteurApp({ tarif }: { tarif: Tarif }) {
           {tab === "affaires" ? (
             <button
               type="button"
-              onClick={() => setShowForm(true)}
+              onClick={() => {
+                setEditing(null)
+                setShowForm(true)
+              }}
               className="shrink-0 rounded-xl bg-amber-500 hover:bg-amber-400 text-[#0a1628] font-bold text-sm px-4 py-2"
             >
               + Nouvelle affaire
@@ -197,6 +222,23 @@ export default function RapporteurApp({ tarif }: { tarif: Tarif }) {
           />
         ) : (
           <>
+        <label className="block">
+          <span className="text-[11px] uppercase tracking-wider text-white/50 font-bold">Sous-traitant</span>
+          <select
+            value={stFilter}
+            onChange={(e) => setStFilter(e.target.value)}
+            className="mt-1 w-full sm:max-w-md rounded-xl bg-white text-slate-900 font-semibold px-3 py-3"
+          >
+            <option value="">Choisir un sous-traitant…</option>
+            {sts.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.nom}{s.telephone ? ` · ${s.telephone}` : ""} ({stCounts[s.id] || 0})
+              </option>
+            ))}
+          </select>
+        </label>
+
+        {stFilter ? (
         <div className="flex flex-wrap gap-2">
           {(["all", "planifiee", "en_cours", "terminee"] as const).map((k) => (
             <button
@@ -211,12 +253,18 @@ export default function RapporteurApp({ tarif }: { tarif: Tarif }) {
             </button>
           ))}
         </div>
+        ) : null}
 
         {loading ? (
           <p className="text-white/50 text-center py-16">Chargement…</p>
+        ) : !stFilter ? (
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-10 text-center">
+            <p className="font-semibold">Aucune affaire affichée.</p>
+            <p className="text-sm text-white/50 mt-1">Choisis un sous-traitant pour voir ses interventions.</p>
+          </div>
         ) : filtered.length === 0 ? (
           <div className="rounded-2xl border border-white/10 bg-white/5 p-10 text-center">
-            <p className="font-semibold">Aucune affaire pour ces filtres.</p>
+            <p className="font-semibold">Aucune affaire pour {selectedSt?.nom || "ce sous-traitant"}.</p>
             <p className="text-sm text-white/50 mt-1">Crée une intervention et envoie-la au sous-traitant.</p>
           </div>
         ) : (
@@ -257,6 +305,19 @@ export default function RapporteurApp({ tarif }: { tarif: Tarif }) {
                   {row.rapporteur_facture_id ? " · facture éditée" : ""}
                 </p>
                 <div className="mt-3 flex flex-wrap gap-2">
+                  {canReopenAffaire(row) ? (
+                    <button
+                      type="button"
+                      disabled={busyId === row.id}
+                      onClick={() => {
+                        setShowForm(false)
+                        setEditing(row)
+                      }}
+                      className="rounded-lg bg-amber-500 hover:bg-amber-400 text-[#0a1628] text-sm font-bold px-3 py-2 disabled:opacity-50"
+                    >
+                      Rouvrir l’affaire
+                    </button>
+                  ) : null}
                   {row.statut !== "terminee" && row.statut !== "annulee" ? (
                     <button
                       type="button"
@@ -294,12 +355,21 @@ export default function RapporteurApp({ tarif }: { tarif: Tarif }) {
         )}
       </main>
 
-      {showForm ? (
-        <NouvelleAffaireModal
+      {showForm || editing ? (
+        <AffaireModal
+          key={editing?.id || "new"}
           sts={sts}
-          onClose={() => setShowForm(false)}
-          onCreated={() => {
+          initial={editing}
+          defaultStId={stFilter}
+          onClose={() => {
             setShowForm(false)
+            setEditing(null)
+            void load()
+          }}
+          onSaved={(sousTraitantId) => {
+            setShowForm(false)
+            setEditing(null)
+            if (sousTraitantId) setStFilter(sousTraitantId)
             void load()
           }}
           onStCreated={(st) => setSts((prev) => [...prev, st].sort((a, b) => a.nom.localeCompare(b.nom)))}
@@ -309,35 +379,44 @@ export default function RapporteurApp({ tarif }: { tarif: Tarif }) {
   )
 }
 
-function NouvelleAffaireModal({
+function AffaireModal({
   sts,
+  initial,
+  defaultStId,
   onClose,
-  onCreated,
+  onSaved,
   onStCreated,
 }: {
   sts: SousTraitant[]
+  initial: Row | null
+  defaultStId: string
   onClose: () => void
-  onCreated: () => void
+  onSaved: (sousTraitantId?: string) => void
   onStCreated: (st: SousTraitant) => void
 }) {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState("")
-  const [clientId, setClientId] = useState<string | null>(null)
-  const [clientNom, setClientNom] = useState("")
-  const [clientEmail, setClientEmail] = useState("")
-  const [clientTel, setClientTel] = useState("")
-  const [clientAdresse, setClientAdresse] = useState("")
-  const [clientCP, setClientCP] = useState("")
-  const [clientVille, setClientVille] = useState("")
-  const [typeIntervention, setTypeIntervention] = useState<string>(TYPES_INTERVENTION[0])
-  const [datePrevue, setDatePrevue] = useState(new Date().toISOString().slice(0, 10))
-  const [heurePrevue, setHeurePrevue] = useState("09:00")
-  const [urgence, setUrgence] = useState(false)
-  const [notes, setNotes] = useState("")
-  const [stId, setStId] = useState(sts[0]?.id || "")
+  const [clientId, setClientId] = useState<string | null>(initial?.client_id ?? null)
+  const [clientNom, setClientNom] = useState(initial?.client_nom || "")
+  const [clientEmail, setClientEmail] = useState(initial?.client_email || "")
+  const [clientTel, setClientTel] = useState(initial?.client_telephone || "")
+  const [clientAdresse, setClientAdresse] = useState(initial?.adresse_chantier || "")
+  const [clientCP, setClientCP] = useState(initial?.code_postal || "")
+  const [clientVille, setClientVille] = useState(initial?.ville || "")
+  const [typeIntervention, setTypeIntervention] = useState<string>(initial?.type_intervention || TYPES_INTERVENTION[0])
+  const [datePrevue, setDatePrevue] = useState(
+    initial?.date_prevue || new Date().toISOString().slice(0, 10),
+  )
+  const [heurePrevue, setHeurePrevue] = useState(fmtHeure(initial?.heure_prevue || "09:00") || "09:00")
+  const [urgence, setUrgence] = useState(!!initial?.urgence)
+  const [notes, setNotes] = useState(initial?.notes_internes || "")
+  const [stId, setStId] = useState(initial?.sous_traitant_id || defaultStId || sts[0]?.id || "")
+  const [savedId, setSavedId] = useState<string | null>(initial?.id ?? null)
+  const [justCreated, setJustCreated] = useState(false)
   const [newStNom, setNewStNom] = useState("")
   const [newStEmail, setNewStEmail] = useState("")
   const [newStTel, setNewStTel] = useState("")
+  const isEdit = !!savedId
 
   async function addSousTraitant() {
     if (!newStNom.trim()) return
@@ -371,11 +450,11 @@ function NouvelleAffaireModal({
     setSubmitting(true)
     setError("")
     try {
-      const res = await fetch("/api/interventions", {
-        method: "POST",
+      const res = await fetch(savedId ? `/api/interventions/${savedId}` : "/api/interventions", {
+        method: savedId ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          flux: "rapporteur",
+          ...(savedId ? {} : { flux: "rapporteur" }),
           sous_traitant_id: stId,
           client: {
             id: clientId || undefined,
@@ -396,9 +475,17 @@ function NouvelleAffaireModal({
           notes_internes: notes || null,
         }),
       })
-      const data = await res.json()
+      const data = await res.json() as { error?: string; intervention?: { id?: string; client_id?: string | null } }
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
-      onCreated()
+      if (!savedId) {
+        const id = data.intervention?.id
+        if (!id) throw new Error("Affaire créée, identifiant manquant")
+        if (data.intervention?.client_id) setClientId(data.intervention.client_id)
+        setSavedId(id)
+        setJustCreated(true)
+        return
+      }
+      onSaved(stId)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -406,11 +493,44 @@ function NouvelleAffaireModal({
     }
   }
 
+  const stNom = sts.find((s) => s.id === stId)?.nom || "sous-traitant"
+
   return (
     <div className="fixed inset-0 z-50 bg-black/60 flex items-start justify-center overflow-y-auto p-4">
       <div className="bg-white text-slate-800 rounded-2xl shadow-2xl max-w-2xl w-full my-8">
+        {justCreated ? (
+          <>
+            <div className="border-b px-5 py-4 flex justify-between items-center">
+              <h2 className="font-black text-[#0e2a52]">Affaire enregistrée</h2>
+              <button type="button" onClick={() => onSaved(stId)} className="text-2xl text-slate-400 leading-none">×</button>
+            </div>
+            <div className="p-5 space-y-4">
+              <p className="text-sm text-slate-600">
+                L’affaire de <strong>{clientNom || "ce client"}</strong> est créée pour{" "}
+                <strong>{stNom}</strong>. Elle reste dans la liste : tu ne peux pas l’effacer.
+              </p>
+              <button
+                type="button"
+                onClick={() => setJustCreated(false)}
+                className="w-full rounded-xl bg-amber-500 hover:bg-amber-400 text-[#0a1628] font-bold py-3"
+              >
+                Rouvrir pour changer le sous-traitant
+              </button>
+              <button
+                type="button"
+                onClick={() => onSaved(stId)}
+                className="w-full rounded-xl border-2 border-slate-200 text-slate-800 font-bold py-3"
+              >
+                Terminé
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
         <div className="border-b px-5 py-4 flex justify-between items-center">
-          <h2 className="font-black text-[#0e2a52]">Nouvelle affaire — {BRAND_NAME}</h2>
+          <h2 className="font-black text-[#0e2a52]">
+            {isEdit ? "Rouvrir l’affaire" : `Nouvelle affaire — ${BRAND_NAME}`}
+          </h2>
           <button type="button" onClick={onClose} className="text-2xl text-slate-400 leading-none">×</button>
         </div>
         <div className="p-5 space-y-4">
@@ -550,6 +670,12 @@ function NouvelleAffaireModal({
             <button type="button" onClick={() => void addSousTraitant()} className="mt-2 text-sm font-bold text-amber-700">
               + Enregistrer ce sous-traitant
             </button>
+            {isEdit ? (
+              <p className="mt-2 text-xs text-slate-500">
+                Change le sous-traitant si tu t’es trompé, puis enregistre. L’affaire n’est pas effacée.
+                {initial?.rapporteur_envoye_at ? " Après un changement, renvoie le dossier au bon sous-traitant." : ""}
+              </p>
+            ) : null}
           </div>
 
           <button
@@ -558,9 +684,13 @@ function NouvelleAffaireModal({
             onClick={() => void handleSubmit()}
             className="w-full rounded-xl bg-[#0e2a52] text-white font-bold py-3 disabled:opacity-50"
           >
-            {submitting ? "Création…" : "Créer l’affaire"}
+            {submitting
+              ? (isEdit ? "Enregistrement…" : "Création…")
+              : (isEdit ? "Enregistrer les modifications" : "Créer l’affaire")}
           </button>
         </div>
+          </>
+        )}
       </div>
     </div>
   )
