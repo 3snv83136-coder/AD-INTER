@@ -1,8 +1,7 @@
 import crypto from "crypto"
-import { createElement } from "react"
 import { renderToBuffer } from "@react-pdf/renderer"
 import { Resend } from "resend"
-import { ContratSousTraitanceDocument } from "@/components/apport/ContratSousTraitancePDF"
+import { buildContratDocument } from "@/components/apport/ContratSousTraitancePDF"
 import { BRAND_NAME, CONTACT_EMAIL } from "@/lib/brand"
 import { EMAIL_RE, escapeHtml, getResendFromEmail, getResendRecipient } from "@/lib/email-utils"
 import { getPrismaOrNull } from "@/lib/db"
@@ -127,20 +126,18 @@ export async function accepterSousTraitance(
   try {
     pdfBuf = Buffer.from(
       await renderToBuffer(
-        createElement(ContratSousTraitanceDocument, {
-          data: {
-            reference: interv.reference,
-            signataireNom: interv.sousTraitant.nom,
-            siret: parsed.siret || null,
-            telephone: tel,
-            typeIntervention: interv.type_intervention,
-            ville: interv.ville,
-            datePrevue,
-            accepteAt: fmtDateHeureFR(accepteAt),
-            preuveHash,
-            signatureDataUrl: input.signatureDataUrl.trim(),
-            ip: input.ip,
-          },
+        buildContratDocument({
+          reference: interv.reference,
+          signataireNom: interv.sousTraitant.nom,
+          siret: parsed.siret || null,
+          telephone: tel,
+          typeIntervention: interv.type_intervention,
+          ville: interv.ville,
+          datePrevue,
+          accepteAt: fmtDateHeureFR(accepteAt),
+          preuveHash,
+          signatureSrc: { data: sig.buf, format: sig.mime === "jpeg" ? "jpg" : "png" },
+          ip: input.ip,
         }) as Parameters<typeof renderToBuffer>[0],
       ),
     )
