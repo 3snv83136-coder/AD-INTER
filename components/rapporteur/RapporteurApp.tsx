@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from "react"
+import Image from "next/image"
 import Link from "next/link"
 import { BackLink } from "@/components/BackLink"
 import ClientAutocomplete from "@/components/ClientAutocomplete"
@@ -45,6 +46,11 @@ type Row = {
   sous_traitant_telephone: string | null
   rapporteur_envoye_at: string | null
   rapporteur_facture_id: string | null
+  photo_avant: string | null
+  photo_apres: string | null
+  apport_rapport: string | null
+  apport_montant: number | null
+  apport_soumis_at: string | null
 }
 
 const STATUT_LABEL: Record<Statut, string> = {
@@ -63,6 +69,10 @@ function canReopenAffaire(row: Row): boolean {
   return row.statut !== "terminee" && row.statut !== "annulee" && !row.rapporteur_facture_id
 }
 
+function hasApportRapport(row: Row): boolean {
+  return Boolean(row.apport_rapport || row.photo_avant || row.photo_apres || row.apport_montant)
+}
+
 export default function RapporteurApp({ tarif }: { tarif: Tarif }) {
   const [rows, setRows] = useState<Row[]>([])
   const [sts, setSts] = useState<SousTraitant[]>([])
@@ -72,7 +82,7 @@ export default function RapporteurApp({ tarif }: { tarif: Tarif }) {
   const [stFilter, setStFilter] = useState("")
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<Row | null>(null)
-  const [tab, setTab] = useState<"affaires" | "sous-traitants">("affaires")
+  const [tab, setTab] = useState<"affaires" | "rapports" | "sous-traitants">("affaires")
   const [busyId, setBusyId] = useState("")
 
   const load = useCallback(async () => {
@@ -117,7 +127,22 @@ export default function RapporteurApp({ tarif }: { tarif: Tarif }) {
     return counts
   }, [rows])
 
+  const rapportCounts = useMemo(() => {
+    const counts: Record<string, number> = {}
+    for (const r of rows) {
+      if (!r.sous_traitant_id || !hasApportRapport(r)) continue
+      counts[r.sous_traitant_id] = (counts[r.sous_traitant_id] || 0) + 1
+    }
+    return counts
+  }, [rows])
+
+  const filteredRapports = useMemo(() => {
+    if (!stFilter) return []
+    return rows.filter((r) => r.sous_traitant_id === stFilter && hasApportRapport(r))
+  }, [rows, stFilter])
+
   const selectedSt = sts.find((s) => s.id === stFilter) || null
+  const dropdownCounts = tab === "rapports" ? rapportCounts : stCounts
 
   async function envoyer(id: string) {
     setBusyId(id)
@@ -189,6 +214,7 @@ export default function RapporteurApp({ tarif }: { tarif: Tarif }) {
         <div className="inline-flex items-center gap-1 p-1 bg-white/10 rounded-2xl">
           {([
             { id: "affaires" as const, label: "Affaires" },
+            { id: "rapports" as const, label: "Rapports" },
             { id: "sous-traitants" as const, label: "Sous-traitants" },
           ]).map((t) => (
             <button
@@ -232,13 +258,13 @@ export default function RapporteurApp({ tarif }: { tarif: Tarif }) {
             <option value="">Choisir un sous-traitant…</option>
             {sts.map((s) => (
               <option key={s.id} value={s.id}>
-                {s.nom}{s.telephone ? ` · ${s.telephone}` : ""} ({stCounts[s.id] || 0})
+                {s.nom}{s.telephone ? ` · ${s.telephone}` : ""} ({dropdownCounts[s.id] || 0})
               </option>
             ))}
           </select>
         </label>
 
-        {stFilter ? (
+        {stFilter && tab === "affaires" ? (
         <div className="flex flex-wrap gap-2">
           {(["all", "planifiee", "en_cours", "terminee"] as const).map((k) => (
             <button
@@ -259,9 +285,30 @@ export default function RapporteurApp({ tarif }: { tarif: Tarif }) {
           <p className="text-white/50 text-center py-16">Chargement…</p>
         ) : !stFilter ? (
           <div className="rounded-2xl border border-white/10 bg-white/5 p-10 text-center">
-            <p className="font-semibold">Aucune affaire affichée.</p>
-            <p className="text-sm text-white/50 mt-1">Choisis un sous-traitant pour voir ses interventions.</p>
+            <p className="font-semibold">
+              {tab === "rapports" ? "Aucun rapport affiché." : "Aucune affaire affichée."}
+            </p>
+            <p className="text-sm text-white/50 mt-1">
+              Choisis un sous-traitant pour voir {tab === "rapports" ? "ses rapports" : "ses interventions"}.
+            </p>
           </div>
+        ) : tab === "rapports" ? (
+          filteredRapports.length === 0 ? (
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-10 text-center">
+              <p className="font-semibold">Aucun rapport pour {selectedSt?.nom || "ce sous-traitant"}.</p>
+              <p className="text-sm text-white/50 mt-1">
+                Les photos, le rapport court et le montant apparaissent ici dès que l’apporteur envoie son dossier.
+              </p>
+            </div>
+          ) : (
+            <ul className="space-y-3">
+              {filteredRapports.map((row) => (
+                <li key={row.id}>
+                  <RapportCard row={row} />
+                </li>
+              ))}
+            </ul>
+          )
         ) : filtered.length === 0 ? (
           <div className="rounded-2xl border border-white/10 bg-white/5 p-10 text-center">
             <p className="font-semibold">Aucune affaire pour {selectedSt?.nom || "ce sous-traitant"}.</p>
@@ -376,6 +423,61 @@ export default function RapporteurApp({ tarif }: { tarif: Tarif }) {
         />
       ) : null}
     </div>
+  )
+}
+
+function RapportPhoto({ src, label }: { src: string; label: string }) {
+  return (
+    <figure className="min-w-0">
+      <div className="relative w-full h-40 rounded-xl overflow-hidden bg-slate-100">
+        <Image src={src} alt={label} fill className="object-cover" sizes="(max-width: 768px) 100vw, 360px" unoptimized />
+      </div>
+      <figcaption className="mt-1 text-[11px] uppercase tracking-wide text-slate-400 font-bold">{label}</figcaption>
+    </figure>
+  )
+}
+
+function RapportCard({ row }: { row: Row }) {
+  return (
+    <article className="rounded-2xl bg-white text-slate-800 p-4 shadow-lg space-y-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <div className="font-black text-[#0e2a52]">{row.client_nom || "Client"}</div>
+          <p className="text-sm text-slate-500">
+            {[row.type_intervention, row.ville, fmtDateFR(row.date_prevue), fmtHeure(row.heure_prevue)]
+              .filter(Boolean)
+              .join(" · ")}
+          </p>
+          <p className="text-sm mt-1">
+            {[row.adresse_chantier, row.code_postal, row.ville].filter(Boolean).join(" ")}
+          </p>
+        </div>
+        <div className="text-right">
+          <p className="text-xs uppercase tracking-wide text-slate-400 font-bold">Montant</p>
+          <p className="text-lg font-black text-[#0e2a52]">{fmtEUR(row.apport_montant)}</p>
+        </div>
+      </div>
+      {(row.photo_avant || row.photo_apres) ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {row.photo_avant ? <RapportPhoto src={row.photo_avant} label="Avant" /> : null}
+          {row.photo_apres ? <RapportPhoto src={row.photo_apres} label="Après" /> : null}
+        </div>
+      ) : (
+        <p className="text-sm text-slate-400">Pas encore de photos.</p>
+      )}
+      {row.apport_rapport ? (
+        <p className="text-sm whitespace-pre-line rounded-xl bg-slate-50 border border-slate-100 px-3 py-2">
+          {row.apport_rapport}
+        </p>
+      ) : (
+        <p className="text-sm text-slate-400">Pas encore de rapport écrit.</p>
+      )}
+      {row.rapporteur_facture_id ? (
+        <Link href="/facture" className="inline-flex rounded-lg bg-slate-100 text-slate-800 text-sm font-bold px-3 py-2">
+          Voir la facture de commission
+        </Link>
+      ) : null}
+    </article>
   )
 }
 

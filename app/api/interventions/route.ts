@@ -5,6 +5,12 @@ import { getPrismaOrNull, dbNotConfiguredResponse } from "@/lib/db"
 import { upsertClient, patchClient } from "@/lib/db-helpers"
 import { isCanalAcquisition } from "@/lib/canaux"
 import { FLUX_CRM, FLUX_RAPPORTEUR, isRapporteurFlux } from "@/lib/rapporteur"
+import {
+  PHOTO_SLOT_APRES,
+  PHOTO_SLOT_AVANT,
+  photoUrlForSlot,
+  readApportRapport,
+} from "@/lib/apport"
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
@@ -142,6 +148,9 @@ export async function GET(req: NextRequest) {
         canal_acquisition: true, terrain_step: true, flux: true, sous_traitant_id: true,
         rapporteur_envoye_at: true, rapporteur_facture_id: true,
         created_at: true, updated_at: true,
+        ...(fluxParam === FLUX_RAPPORTEUR
+          ? { photos_urls: true, photos_legendes: true, rapport_json: true }
+          : {}),
       },
       orderBy: fluxParam === FLUX_RAPPORTEUR
         ? [{ created_at: 'desc' }]
@@ -189,6 +198,15 @@ export async function GET(req: NextRequest) {
     const decorated = interventions.map(i => {
       const row = serializeIntervention(i as unknown as Record<string, unknown>)
       const st = i.sous_traitant_id ? stMap[i.sous_traitant_id] : null
+      const extra = i as unknown as {
+        photos_urls?: string[] | null
+        photos_legendes?: string[] | null
+        rapport_json?: Prisma.JsonValue | null
+      }
+      const photos_urls = extra.photos_urls || []
+      const photos_legendes = extra.photos_legendes || []
+      const apport = readApportRapport(extra.rapport_json)
+      const prix = row.prix_prevu != null ? Number(row.prix_prevu) : null
       return {
         ...row,
         client_nom: i.client_id ? clientsMap[i.client_id]?.nom ?? null : null,
@@ -202,6 +220,11 @@ export async function GET(req: NextRequest) {
         rapporteur_envoye_at: i.rapporteur_envoye_at instanceof Date
           ? i.rapporteur_envoye_at.toISOString()
           : i.rapporteur_envoye_at,
+        photo_avant: photoUrlForSlot(photos_urls, photos_legendes, PHOTO_SLOT_AVANT),
+        photo_apres: photoUrlForSlot(photos_urls, photos_legendes, PHOTO_SLOT_APRES),
+        apport_rapport: apport?.rapport || null,
+        apport_montant: apport?.montant ?? prix,
+        apport_soumis_at: apport?.soumis_at || null,
       }
     })
 

@@ -145,3 +145,22 @@ export function jsonObject(value: Prisma.JsonValue | null | undefined): Record<s
   }
   return {}
 }
+
+export type ApportRapportLu = {
+  rapport: string
+  montant: number | null
+  soumis_at: string | null
+}
+
+export function readApportRapport(
+  rapportJson: Prisma.JsonValue | null | undefined,
+): ApportRapportLu | null {
+  const apport = jsonObject(rapportJson).apport
+  if (!apport || typeof apport !== "object" || Array.isArray(apport)) return null
+  const rec = apport as Record<string, unknown>
+  const rapport = typeof rec.rapport === "string" ? rec.rapport.trim() : ""
+  const montant = parseMontant(rec.montant)
+  const soumis_at = typeof rec.soumis_at === "string" ? rec.soumis_at : null
+  if (!rapport && montant == null && !soumis_at) return null
+  return { rapport, montant, soumis_at }
+}
