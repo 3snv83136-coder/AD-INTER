@@ -15,7 +15,7 @@ import type { Tarif } from "@/lib/types"
 import { CreationSousTraitant } from "@/components/rapporteur/CreationSousTraitant"
 import { CrmSignatureSignal } from "@/components/crm/CrmSignatureSignal"
 import { useAccess } from "@/components/useAccess"
-import { canDeleteAffaireRapporteur } from "@/lib/rapporteur"
+import { canDeleteAffaireRapporteur } from "@/lib/rapporteur-rules"
 
 type Statut = "planifiee" | "en_cours" | "terminee" | "annulee"
 

@@ -4,18 +4,14 @@ import { getPrismaOrNull } from "@/lib/db"
 import { getParametre } from "@/lib/parametres"
 import { TARIF_COMMISSION_RAPPORTEUR, getTarifActif } from "@/lib/tarif"
 import type { Tarif } from "@/lib/types"
+import { FLUX_RAPPORTEUR } from "@/lib/rapporteur-rules"
 
-export const FLUX_CRM = "crm"
-export const FLUX_RAPPORTEUR = "rapporteur"
-
-export function isRapporteurFlux(v: unknown): boolean {
-  return v === FLUX_RAPPORTEUR
-}
-
-/** Super-admin : on peut effacer une affaire ouverte, pas une affaire déjà facturée. */
-export function canDeleteAffaireRapporteur(statut: string | null | undefined): boolean {
-  return statut !== "terminee"
-}
+export {
+  FLUX_CRM,
+  FLUX_RAPPORTEUR,
+  canDeleteAffaireRapporteur,
+  isRapporteurFlux,
+} from "@/lib/rapporteur-rules"
 
 export function nextFactureNumero(): string {
   const d = new Date()
