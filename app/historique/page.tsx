@@ -117,11 +117,14 @@ export default function HistoriquePage() {
   useEffect(() => { load() }, [])
 
   async function handleDeleteDoc(d: Document) {
-    const label = d.type === 'facture' ? 'cette facture' : `ce ${d.type}`
+    const isFacture = d.type === 'facture'
+    const label = isFacture ? 'cette facture' : `ce ${d.type}`
     const ref = d.numero ? ` ${d.numero}` : ''
-    const cascadeNote = d.intervention_id
-      ? '\n\n⚠ Le document est lié à une intervention : tout est effacé (intervention, rapport, autres factures/devis liés, photos).'
-      : ''
+    const cascadeNote = isFacture
+      ? '\n\nL’intervention et le rapport restent.'
+      : d.intervention_id
+        ? '\n\n⚠ Le document est lié à une intervention : tout est effacé (intervention, rapport, autres factures/devis liés, photos).'
+        : ''
     if (!confirm(`Supprimer ${label}${ref} ?${cascadeNote}\n\nAction irréversible.`)) return
     setDeletingId(d.id); setError('')
     try {
@@ -323,7 +326,7 @@ export default function HistoriquePage() {
                         </div>
                       </td>
                       <td className="px-2 py-3 text-center">
-                        {canDelete && i.flux !== "rapporteur" ? (
+                        {canDelete && (i.flux !== "rapporteur" || i.statut !== "terminee") ? (
                         <button
                           type="button"
                           onClick={() => handleDeleteIntervention(i)}
@@ -407,7 +410,7 @@ export default function HistoriquePage() {
                         </div>
                       </td>
                       <td className="px-2 py-3 text-center">
-                        {canDelete && !(d.intervention_id && rapporteurIds.has(d.intervention_id)) ? (
+                        {canDelete && (d.type === 'facture' || !(d.intervention_id && rapporteurIds.has(d.intervention_id))) ? (
                         <button
                           type="button"
                           onClick={() => handleDeleteDoc(d)}

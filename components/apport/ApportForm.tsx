@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { AcceptationSousTraitance } from "@/components/apport/AcceptationSousTraitance"
+import { CartoucheAffaire } from "@/components/apport/CartoucheAffaire"
 import { BRAND_NAME } from "@/lib/brand"
-import { fmtDateFR } from "@/lib/format"
 
 type Affaire = {
   type_intervention: string | null
@@ -13,6 +13,7 @@ type Affaire = {
   adresse: string
   client_nom: string | null
   client_telephone: string | null
+  client_email: string | null
   notes: string | null
   sous_traitant_nom: string
   already: boolean
@@ -29,7 +30,8 @@ const APERCU_AFFAIRE: Affaire = {
   ville: "Pantin",
   adresse: "24 Rue Méhul 93500 PANTIN",
   client_nom: "M. Dupont",
-  client_telephone: "06 00 00 00 00",
+  client_telephone: null,
+  client_email: "client@exemple.fr",
   notes: "Exemple d’affaire — aperçu de la fiche reçue par l’apporteur.",
   sous_traitant_nom: "Sous-traitant",
   already: false,
@@ -202,21 +204,7 @@ export function ApportForm({ token, preview = false }: { token: string; preview?
 
         {affaire && !sent && !needsAcceptation ? (
           <>
-            <section className="rounded-2xl bg-white text-slate-800 p-5 space-y-1">
-              <p className="text-xs uppercase tracking-wide text-slate-400 font-semibold">Affaire</p>
-              <p className="font-black text-[#0e2a52]">{affaire.type_intervention || "Intervention"}</p>
-              <p className="text-sm text-slate-600">
-                {[fmtDateFR(affaire.date_prevue), affaire.heure_prevue, affaire.ville].filter(Boolean).join(" · ")}
-              </p>
-              {affaire.adresse ? <p className="text-sm">{affaire.adresse}</p> : null}
-              {affaire.client_nom ? <p className="text-sm font-semibold">{affaire.client_nom}</p> : null}
-              {affaire.client_telephone ? (
-                <a className="text-sm text-blue-700 font-bold" href={`tel:${affaire.client_telephone}`}>
-                  {affaire.client_telephone}
-                </a>
-              ) : null}
-              {affaire.notes ? <p className="text-sm text-slate-500 mt-2 whitespace-pre-line">{affaire.notes}</p> : null}
-            </section>
+            <CartoucheAffaire affaire={affaire} />
 
             {!already ? (
               <>

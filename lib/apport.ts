@@ -14,6 +14,7 @@ export type ApportAffaire = {
   adresse: string
   client_nom: string | null
   client_telephone: string | null
+  client_email: string | null
   notes: string | null
   sous_traitant_nom: string
   already: boolean
@@ -86,7 +87,7 @@ export async function loadApportContext(
   const interv = await prisma.intervention.findUnique({
     where: { id: payload.interventionId },
     include: {
-      client: { select: { nom: true, telephone: true } },
+      client: { select: { nom: true, telephone: true, email: true } },
       sousTraitant: { select: { id: true, nom: true, notes: true } },
     },
   })
@@ -124,6 +125,7 @@ export async function loadApportContext(
         adresse,
         client_nom: interv.client?.nom || null,
         client_telephone: interv.client?.telephone || null,
+        client_email: interv.client?.email || null,
         notes: interv.notes_internes,
         sous_traitant_nom: interv.sousTraitant.nom,
         already,

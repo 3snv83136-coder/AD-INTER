@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { dbNotConfiguredResponse, getPrismaOrNull } from "@/lib/db"
 import type { DocumentStatut } from "@/lib/types"
-import { cascadeDeleteDocument } from "@/lib/cascadeDelete"
+import { cascadeDeleteDocument, deleteFactureDocument } from "@/lib/cascadeDelete"
 import { annulerRelancesFacture } from "@/lib/facture-relance"
 import { getSessionUser } from "@/lib/intervention-access"
 import { canEditDevis, requireFullAdmin } from "@/lib/permissions"
@@ -103,22 +103,39 @@ export async function DELETE(
   if (!id) return NextResponse.json({ error: 'id manquant' }, { status: 400 })
 
   const prisma = getPrismaOrNull()
-  if (prisma) {
-    const doc = await prisma.document.findUnique({
-      where: { id },
-      select: { intervention_id: true },
+  if (!prisma) {
+    const { error, status } = dbNotConfiguredResponse()
+    return NextResponse.json({ error }, { status })
+  }
+
+  const doc = await prisma.document.findUnique({
+    where: { id },
+    select: { type: true, intervention_id: true },
+  })
+  if (!doc) return NextResponse.json({ error: 'Document introuvable' }, { status: 404 })
+
+  if (doc.type === 'facture') {
+    const result = await deleteFactureDocument(id)
+    if (!result.ok) {
+      const isNotFound = result.warnings.some(w => w.includes('introuvable'))
+      return NextResponse.json(
+        { error: result.warnings.join('; ') || 'Suppression échouée' },
+        { status: isNotFound ? 404 : 500 },
+      )
+    }
+    return NextResponse.json({ ok: true, cascade: 'facture', warnings: result.warnings })
+  }
+
+  if (doc.intervention_id) {
+    const interv = await prisma.intervention.findUnique({
+      where: { id: doc.intervention_id },
+      select: { flux: true },
     })
-    if (doc?.intervention_id) {
-      const interv = await prisma.intervention.findUnique({
-        where: { id: doc.intervention_id },
-        select: { flux: true },
-      })
-      if (interv?.flux === FLUX_RAPPORTEUR) {
-        return NextResponse.json(
-          { error: 'Une affaire rapporteur ne peut pas être supprimée. Tu peux la modifier pour changer le sous-traitant.' },
-          { status: 409 },
-        )
-      }
+    if (interv?.flux === FLUX_RAPPORTEUR) {
+      return NextResponse.json(
+        { error: 'Une affaire rapporteur ne peut pas être supprimée. Tu peux la modifier pour changer le sous-traitant.' },
+        { status: 409 },
+      )
     }
   }
 

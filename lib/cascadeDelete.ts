@@ -1,5 +1,6 @@
 import { getPrismaOrNull } from '@/lib/db'
 import { blobPaths, deleteBlobs, listBlobPrefix } from '@/lib/storage'
+import { annulerRelancesFacture } from '@/lib/facture-relance'
 
 export type CascadeDeleteResult = {
   ok: boolean
@@ -54,12 +55,14 @@ export async function cascadeDeleteIntervention(interventionId: string): Promise
   }
 
   const folder = interventionId.replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 80)
-  const [pdfRes, photoRes] = await Promise.all([
+  const [pdfRes, photoRes, contratRes] = await Promise.all([
     emptyBlobPrefix(`pdfs/${folder}/`),
     emptyBlobPrefix(`photos/${folder}/`),
+    emptyBlobPrefix(`contrats/${folder}/`),
   ])
   if (pdfRes.warning) warnings.push(pdfRes.warning)
   if (photoRes.warning) warnings.push(photoRes.warning)
+  if (contratRes.warning) warnings.push(contratRes.warning)
 
   try {
     const result = await prisma.intervention.deleteMany({
@@ -132,4 +135,73 @@ export async function cascadeDeleteDocument(documentId: string): Promise<
     return { kind: 'document', ok: false, warnings: [...warnings, msg] }
   }
   return { kind: 'document', ok: true, warnings }
+}
+
+/** Supprime uniquement la facture (PDF, relances, lien rapporteur). L’intervention reste. */
+export async function deleteFactureDocument(documentId: string): Promise<{
+  ok: boolean
+  warnings: string[]
+}> {
+  const warnings: string[] = []
+  const prisma = getPrismaOrNull()
+  if (!prisma) return { ok: false, warnings: ['Base de données non configurée'] }
+
+  const doc = await prisma.document.findUnique({
+    where: { id: documentId },
+    select: { id: true, type: true, pdf_url: true, intervention_id: true },
+  })
+  if (!doc) return { ok: false, warnings: ['Document introuvable'] }
+  if (doc.type !== 'facture') {
+    return { ok: false, warnings: ['Ce document n’est pas une facture'] }
+  }
+
+  try {
+    await annulerRelancesFacture(documentId)
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    warnings.push(`relances: ${msg}`)
+  }
+
+  if (doc.pdf_url) {
+    try {
+      await deleteBlobs([doc.pdf_url])
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      warnings.push(`pdf: ${msg}`)
+    }
+  }
+
+  try {
+    await prisma.operationBancaire.updateMany({
+      where: { document_id: documentId },
+      data: { document_id: null, lettre: false, lettre_at: null },
+    })
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    warnings.push(`compta: ${msg}`)
+  }
+
+  if (doc.intervention_id) {
+    try {
+      await prisma.intervention.updateMany({
+        where: { id: doc.intervention_id, rapporteur_facture_id: documentId },
+        data: { rapporteur_facture_id: null },
+      })
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      warnings.push(`rapporteur: ${msg}`)
+    }
+  }
+
+  try {
+    const result = await prisma.document.deleteMany({ where: { id: documentId } })
+    if (result.count === 0) {
+      return { ok: false, warnings: [...warnings, '0 ligne effacée (déjà supprimée ou ID invalide)'] }
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return { ok: false, warnings: [...warnings, msg] }
+  }
+
+  return { ok: true, warnings }
 }

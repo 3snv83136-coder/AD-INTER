@@ -14,6 +14,8 @@ import { BRAND_NAME } from "@/lib/brand"
 import type { Tarif } from "@/lib/types"
 import { CreationSousTraitant } from "@/components/rapporteur/CreationSousTraitant"
 import { CrmSignatureSignal } from "@/components/crm/CrmSignatureSignal"
+import { useAccess } from "@/components/useAccess"
+import { canDeleteAffaireRapporteur } from "@/lib/rapporteur"
 
 type Statut = "planifiee" | "en_cours" | "terminee" | "annulee"
 
@@ -77,6 +79,7 @@ function hasApportRapport(row: Row): boolean {
 }
 
 export default function RapporteurApp({ tarif }: { tarif: Tarif }) {
+  const { canDelete } = useAccess()
   const [rows, setRows] = useState<Row[]>([])
   const [sts, setSts] = useState<SousTraitant[]>([])
   const [loading, setLoading] = useState(true)
@@ -164,6 +167,26 @@ export default function RapporteurApp({ tarif }: { tarif: Tarif }) {
       await load()
     } catch (e) {
       setError(e instanceof Error ? e.message : "Envoi impossible")
+    } finally {
+      setBusyId("")
+    }
+  }
+
+  async function supprimerAffaire(row: Row) {
+    if (!canDeleteAffaireRapporteur(row.statut)) return
+    if (!window.confirm(
+      `Supprimer l’affaire ${row.ville || row.type_intervention || ""} ?\n\n` +
+      `Le contrat, les photos et le lien sous-traitant seront effacés. Irréversible.`,
+    )) return
+    setBusyId(row.id)
+    setError("")
+    try {
+      const res = await fetch(`/api/interventions/${row.id}?hard=1`, { method: "DELETE" })
+      const data = await res.json() as { error?: string }
+      if (!res.ok) throw new Error(data.error || "Suppression impossible")
+      await load()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Suppression impossible")
     } finally {
       setBusyId("")
     }
@@ -371,6 +394,16 @@ export default function RapporteurApp({ tarif }: { tarif: Tarif }) {
                   {row.rapporteur_facture_id ? " · facture éditée" : ""}
                 </p>
                 <div className="mt-3 flex flex-wrap gap-2">
+                  {canDelete && canDeleteAffaireRapporteur(row.statut) ? (
+                    <button
+                      type="button"
+                      disabled={busyId === row.id}
+                      onClick={() => void supprimerAffaire(row)}
+                      className="rounded-lg bg-red-600 hover:bg-red-500 text-white text-sm font-bold px-3 py-2 disabled:opacity-50"
+                    >
+                      Supprimer l’affaire
+                    </button>
+                  ) : null}
                   {canReopenAffaire(row) ? (
                     <button
                       type="button"

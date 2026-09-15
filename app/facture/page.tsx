@@ -191,10 +191,10 @@ export default function FactureConsolePage() {
   }
 
   async function handleSupprimer(f: FactureRow) {
-    const cascadeNote = f.intervention_id
-      ? '\n\n⚠ La facture est liée à une intervention : tout est effacé (intervention, rapport, devis, autres documents liés, photos).'
-      : ''
-    if (!confirm(`Supprimer définitivement la facture ${f.numero || ''} ?${cascadeNote}\n\nAction irréversible.`)) return
+    if (!confirm(
+      `Supprimer définitivement la facture ${f.numero || ''} ?\n\n` +
+      `L’intervention et le rapport restent. Action irréversible.`,
+    )) return
     setPendingId(f.id); setError(''); setInfo('')
     try {
       const res = await fetch(`/api/historique/${f.id}`, { method: 'DELETE' })
@@ -602,11 +602,12 @@ export default function FactureConsolePage() {
                               type="button"
                               onClick={() => handleSupprimer(f)}
                               disabled={isPending}
-                              className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-white hover:bg-red-50 hover:text-red-600 text-slate-400 transition disabled:opacity-50 border border-slate-200 hover:border-red-200"
-                              title="Supprimer définitivement"
-                              aria-label="Supprimer définitivement"
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white hover:bg-red-50 text-red-700 text-[11px] font-semibold transition disabled:opacity-50 border border-slate-200 hover:border-red-200"
+                              title="Supprimer la facture (l’intervention reste)"
+                              aria-label="Supprimer la facture"
                             >
-                              <TrashIcon className="w-4 h-4" />
+                              <TrashIcon className="w-3.5 h-3.5" />
+                              <span>Supprimer</span>
                             </button>
                             )}
                           </div>

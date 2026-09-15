@@ -507,7 +507,7 @@ export default function InterventionDetailPage({ params }: { params: { id: strin
                   ✕ Annuler
                 </button>
               )}
-              {canDelete && intervention.flux !== "rapporteur" && (
+              {canDelete && (intervention.flux !== "rapporteur" || intervention.statut !== "terminee") && (
               <button
                 onClick={hardDelete}
                 disabled={actionInProgress}

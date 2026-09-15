@@ -252,7 +252,7 @@ export default function RapportsPage() {
                     className="px-3 py-1.5 text-xs rounded-lg bg-[#0e2a52] text-white hover:bg-[#0a1f3d]"
                   >✏️ Modifier</button>
                   )}
-                  {canDelete && r.flux !== "rapporteur" && (
+                  {canDelete && (r.flux !== "rapporteur" || r.statut !== "terminee") && (
                   <button
                     onClick={() => supprimerRapport(r)}
                     disabled={deletingId === r.id}

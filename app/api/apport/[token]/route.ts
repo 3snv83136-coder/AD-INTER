@@ -35,6 +35,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
     adresse: "",
     client_nom: null,
     client_telephone: null,
+    client_email: null,
     notes: null,
     sous_traitant_nom: loaded.ctx.affaire.sous_traitant_nom,
     already: false,

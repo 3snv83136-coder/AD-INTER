@@ -12,6 +12,11 @@ export function isRapporteurFlux(v: unknown): boolean {
   return v === FLUX_RAPPORTEUR
 }
 
+/** Super-admin : on peut effacer une affaire ouverte, pas une affaire déjà facturée. */
+export function canDeleteAffaireRapporteur(statut: string | null | undefined): boolean {
+  return statut !== "terminee"
+}
+
 export function nextFactureNumero(): string {
   const d = new Date()
   const y = d.getFullYear()

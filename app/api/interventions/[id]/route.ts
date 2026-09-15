@@ -6,7 +6,7 @@ import { patchClient } from "@/lib/db-helpers"
 import { isCanalAcquisition } from "@/lib/canaux"
 import { cascadeDeleteIntervention } from "@/lib/cascadeDelete"
 import { canEditIntervention, requireFullAdmin } from "@/lib/permissions"
-import { FLUX_RAPPORTEUR } from "@/lib/rapporteur"
+import { FLUX_RAPPORTEUR, canDeleteAffaireRapporteur } from "@/lib/rapporteur"
 
 export const dynamic = 'force-dynamic'
 
@@ -271,18 +271,18 @@ export async function DELETE(req: NextRequest, { params }: Params) {
 
   const existing = await prisma.intervention.findUnique({
     where: { id: params.id },
-    select: { flux: true },
+    select: { flux: true, statut: true },
   })
   if (!existing) return NextResponse.json({ error: 'Intervention introuvable' }, { status: 404 })
-  if (existing.flux === FLUX_RAPPORTEUR) {
+  if (existing.flux === FLUX_RAPPORTEUR && !canDeleteAffaireRapporteur(existing.statut)) {
     return NextResponse.json(
-      { error: 'Une affaire rapporteur ne peut pas être supprimée. Tu peux la modifier pour changer le sous-traitant.' },
+      { error: 'Une affaire clôturée ne peut pas être supprimée. Tu peux supprimer la facture depuis Facturation.' },
       { status: 409 },
     )
   }
 
   const url = new URL(req.url)
-  const hard = url.searchParams.get('hard') === '1'
+  const hard = url.searchParams.get('hard') === '1' || existing.flux === FLUX_RAPPORTEUR
 
   if (hard) {
     const result = await cascadeDeleteIntervention(params.id)
