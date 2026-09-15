@@ -26,10 +26,27 @@ export async function GET(_req: NextRequest, { params }: Params) {
   if (!loaded.ok) {
     return NextResponse.json({ error: loaded.error }, { status: loaded.status })
   }
+  const accepted = loaded.ctx.pris_en_charge
+  const teaser = {
+    type_intervention: loaded.ctx.affaire.type_intervention,
+    date_prevue: loaded.ctx.affaire.date_prevue,
+    heure_prevue: loaded.ctx.affaire.heure_prevue,
+    ville: loaded.ctx.affaire.ville,
+    adresse: "",
+    client_nom: null,
+    client_telephone: null,
+    notes: null,
+    sous_traitant_nom: loaded.ctx.affaire.sous_traitant_nom,
+    already: false,
+    photo_avant: null,
+    photo_apres: null,
+  }
   return NextResponse.json({
     ok: true,
     already: loaded.ctx.already,
-    affaire: loaded.ctx.affaire,
+    pris_en_charge: accepted,
+    needs_acceptation: !accepted,
+    affaire: accepted ? loaded.ctx.affaire : teaser,
   })
 }
 
@@ -40,6 +57,12 @@ export async function POST(req: NextRequest, { params }: Params) {
   }
   if (loaded.ctx.already) {
     return NextResponse.json({ error: "Ce dossier a déjà été envoyé.", already: true }, { status: 409 })
+  }
+  if (!loaded.ctx.pris_en_charge) {
+    return NextResponse.json(
+      { error: "Accepte d’abord les conditions générales et signe pour prendre l’intervention." },
+      { status: 403 },
+    )
   }
 
   let body: { rapport?: unknown; montant?: unknown }

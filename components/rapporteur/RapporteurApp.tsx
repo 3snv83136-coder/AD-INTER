@@ -13,6 +13,7 @@ import { fmtDateFR, fmtEUR } from "@/lib/format"
 import { BRAND_NAME } from "@/lib/brand"
 import type { Tarif } from "@/lib/types"
 import { CreationSousTraitant } from "@/components/rapporteur/CreationSousTraitant"
+import { CrmSignatureSignal } from "@/components/crm/CrmSignatureSignal"
 
 type Statut = "planifiee" | "en_cours" | "terminee" | "annulee"
 
@@ -51,6 +52,8 @@ type Row = {
   apport_rapport: string | null
   apport_montant: number | null
   apport_soumis_at: string | null
+  pris_en_charge_at: string | null
+  has_contrat: boolean
 }
 
 const STATUT_LABEL: Record<Statut, string> = {
@@ -70,7 +73,7 @@ function canReopenAffaire(row: Row): boolean {
 }
 
 function hasApportRapport(row: Row): boolean {
-  return Boolean(row.apport_rapport || row.photo_avant || row.photo_apres || row.apport_montant)
+  return Boolean(row.apport_rapport || row.photo_avant || row.photo_apres || row.apport_montant || row.has_contrat)
 }
 
 export default function RapporteurApp({ tarif }: { tarif: Tarif }) {
@@ -107,6 +110,10 @@ export default function RapporteurApp({ tarif }: { tarif: Tarif }) {
 
   useEffect(() => {
     void load()
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") void load()
+    }, 8_000)
+    return () => window.clearInterval(timer)
   }, [load])
 
   const filtered = useMemo(() => {
@@ -211,6 +218,7 @@ export default function RapporteurApp({ tarif }: { tarif: Tarif }) {
       </header>
 
       <main className="max-w-5xl mx-auto px-4 py-5 space-y-4">
+        <CrmSignatureSignal tone="dark" />
         <div className="inline-flex items-center gap-1 p-1 bg-white/10 rounded-2xl">
           {([
             { id: "affaires" as const, label: "Affaires" },
@@ -342,9 +350,20 @@ export default function RapporteurApp({ tarif }: { tarif: Tarif }) {
                       </a>
                     ) : null}
                   </div>
+                  <div className="flex flex-col items-end gap-1">
                   <span className="text-xs font-bold rounded-full bg-slate-100 px-3 py-1">
                     {STATUT_LABEL[row.statut]}
                   </span>
+                  {row.pris_en_charge_at ? (
+                    <span className="text-xs font-bold rounded-full bg-emerald-100 text-emerald-800 px-3 py-1">
+                      Pris en charge
+                    </span>
+                  ) : row.rapporteur_envoye_at ? (
+                    <span className="text-xs font-bold rounded-full bg-amber-100 text-amber-800 px-3 py-1">
+                      En attente de lecture
+                    </span>
+                  ) : null}
+                  </div>
                 </div>
                 <p className="text-sm mt-2 text-slate-600">
                   Sous-traitant : <strong>{row.sous_traitant_nom || "—"}</strong>
@@ -385,6 +404,7 @@ export default function RapporteurApp({ tarif }: { tarif: Tarif }) {
                       Intervention finie — éditer la facture
                     </button>
                   ) : null}
+                  {row.has_contrat ? <ContratSousTraitanceLink interventionId={row.id} /> : null}
                   {row.rapporteur_facture_id ? (
                     <Link
                       href="/facture"
@@ -423,6 +443,19 @@ export default function RapporteurApp({ tarif }: { tarif: Tarif }) {
         />
       ) : null}
     </div>
+  )
+}
+
+function ContratSousTraitanceLink({ interventionId }: { interventionId: string }) {
+  return (
+    <a
+      href={`/api/interventions/${interventionId}/contrat-sous-traitance`}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex rounded-lg bg-[#0e2a52] text-white text-sm font-bold px-3 py-2"
+    >
+      Contrat de sous-traitance
+    </a>
   )
 }
 
@@ -472,11 +505,14 @@ function RapportCard({ row }: { row: Row }) {
       ) : (
         <p className="text-sm text-slate-400">Pas encore de rapport écrit.</p>
       )}
-      {row.rapporteur_facture_id ? (
-        <Link href="/facture" className="inline-flex rounded-lg bg-slate-100 text-slate-800 text-sm font-bold px-3 py-2">
-          Voir la facture de commission
-        </Link>
-      ) : null}
+      <div className="flex flex-wrap gap-2">
+        {row.has_contrat ? <ContratSousTraitanceLink interventionId={row.id} /> : null}
+        {row.rapporteur_facture_id ? (
+          <Link href="/facture" className="inline-flex rounded-lg bg-slate-100 text-slate-800 text-sm font-bold px-3 py-2">
+            Voir la facture de commission
+          </Link>
+        ) : null}
+      </div>
     </article>
   )
 }

@@ -43,6 +43,8 @@ export const blobPaths = {
   photo: (interventionId: string, filename: string) => `photos/${interventionId}/${filename}`,
   video: (interventionId: string, filename: string) => `videos/${interventionId}/${filename}`,
   accord: (accordId: string) => `accords/${accordId}.pdf`,
+  contratSousTraitance: (interventionId: string, filename: string) =>
+    `contrats/${interventionId}/${filename}`,
   releve: (compteId: string, annee: number, mois: number) =>
     `releves/${compteId}/${annee}-${String(mois).padStart(2, '0')}.pdf`,
 }

@@ -72,6 +72,7 @@ model SousTraitant {
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
   interventions Intervention[]
+  contrats      ContratSousTraitance[]
 
   @@index([actif])
   @@index([nom])
@@ -130,6 +131,7 @@ model Intervention {
   sousTraitant SousTraitant?       @relation(fields: [sous_traitant_id], references: [id], onDelete: SetNull)
   documents    Document[]
   accord       AccordIntervention?
+  contratSousTraitance ContratSousTraitance?
 
   @@index([date_prevue])
   @@index([statut])
@@ -144,6 +146,30 @@ model Intervention {
   @@index([terrain_step])
   @@index([video_status])
   @@map("interventions")
+}
+
+model ContratSousTraitance {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  intervention_id  String   @unique @db.Uuid
+  sous_traitant_id String   @db.Uuid
+  cgu_version      String
+  cgu_acceptees_at DateTime @db.Timestamptz(6)
+  signature_url    String
+  pdf_url          String
+  preuve_hash      String
+  assurance_numero String
+  siret            String?
+  signataire_nom   String
+  ip               String?
+  user_agent       String?
+  created_at       DateTime @default(now()) @db.Timestamptz(6)
+
+  intervention Intervention @relation(fields: [intervention_id], references: [id], onDelete: Cascade)
+  sousTraitant SousTraitant @relation(fields: [sous_traitant_id], references: [id], onDelete: Restrict)
+
+  @@index([sous_traitant_id])
+  @@index([created_at])
+  @@map("contrats_sous_traitance")
 }
 
 model Document {

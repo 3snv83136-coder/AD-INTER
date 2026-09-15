@@ -4,13 +4,14 @@ import { useEffect, useRef, useState } from "react"
 type Props = {
   /** Appelé avec le PNG (data URL) à chaque tracé, ou null si effacé. */
   onChange: (dataUrl: string | null) => void
+  hint?: string
 }
 
 /**
  * Cadre de signature tactile (canvas). Pointer Events = souris, tactile et
  * stylet gérés d'un seul code. `touch-none` empêche le scroll pendant le tracé.
  */
-export default function SignatureCanvas({ onChange }: Props) {
+export default function SignatureCanvas({ onChange, hint }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const drawing = useRef(false)
   const hasInk = useRef(false)
@@ -90,7 +91,7 @@ export default function SignatureCanvas({ onChange }: Props) {
       />
       <div className="flex items-center justify-between mt-1.5">
         <span className="text-[11px] text-slate-400">
-          {empty ? 'Faire signer le client dans le cadre' : 'Signature capturée ✓'}
+          {empty ? (hint || "Faire signer le client dans le cadre") : "Signature capturée ✓"}
         </span>
         <button
           type="button"

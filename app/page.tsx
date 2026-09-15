@@ -2,11 +2,15 @@
 
 import Link from "next/link"
 import { BRAND_NAME } from "@/lib/brand"
+import { CrmSignatureSignal } from "@/components/crm/CrmSignatureSignal"
 
 export default function HubPage() {
   return (
     <main className="min-h-dvh bg-[#0a1628] text-white flex flex-col">
       <div className="flex-1 flex flex-col items-center justify-center px-4 py-10 gap-10">
+        <div className="w-full max-w-3xl empty:hidden">
+          <CrmSignatureSignal tone="dark" />
+        </div>
         <div className="text-center space-y-2">
           <h1 className="text-xl sm:text-2xl font-black leading-tight">
             {BRAND_NAME}

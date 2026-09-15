@@ -5,6 +5,7 @@ import Link from "next/link"
 import { BackLink } from "@/components/BackLink"
 import { ICON_512_PATH } from "@/lib/brand"
 import { useAccess } from "@/components/useAccess"
+import { CrmSignatureSignal } from "@/components/crm/CrmSignatureSignal"
 
 type SubLink = { href: string; label: string; desc: string }
 
@@ -211,6 +212,7 @@ export default function Home() {
       </header>
 
       <div className="max-w-6xl mx-auto px-3 sm:px-5 py-4 sm:py-5 space-y-4 sm:space-y-5">
+        <CrmSignatureSignal tone="dark" />
         <section>
           <h2 className="text-[10px] uppercase tracking-[0.18em] text-white/45 font-semibold mb-2 px-0.5">
             Priorités

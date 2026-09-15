@@ -21,6 +21,12 @@ export async function POST(req: NextRequest, { params }: Params) {
   if (loaded.ctx.already) {
     return NextResponse.json({ error: "Ce dossier a déjà été envoyé.", already: true }, { status: 409 })
   }
+  if (!loaded.ctx.pris_en_charge) {
+    return NextResponse.json(
+      { error: "Accepte d’abord les conditions générales et signe pour prendre l’intervention." },
+      { status: 403 },
+    )
+  }
 
   let formData: FormData
   try {

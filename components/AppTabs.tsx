@@ -8,6 +8,7 @@ import {
   ArchiveIcon, EnvelopeIcon,
 } from "@/components/Icons"
 import { BackLink } from "@/components/BackLink"
+import { CrmSignatureSignal } from "@/components/crm/CrmSignatureSignal"
 
 type Tab = {
   href: string
@@ -31,8 +32,10 @@ export default function AppTabs() {
   const visibleTabs = TABS
 
   return (
-    <nav className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 scrollbar-hide">
-      <div className="inline-flex items-center gap-1 p-1 bg-slate-100 rounded-2xl mb-3 whitespace-nowrap min-w-max sm:min-w-0">
+    <>
+      <CrmSignatureSignal compact tone="light" />
+      <nav className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 scrollbar-hide">
+        <div className="inline-flex items-center gap-1 p-1 bg-slate-100 rounded-2xl mb-3 whitespace-nowrap min-w-max sm:min-w-0">
         <BackLink href="/" label="Espaces" className="text-slate-600 hover:bg-white/80 hover:text-[#0e2a52]" />
         {visibleTabs.map(t => {
           const active = t.href === '/crm'
@@ -65,7 +68,8 @@ export default function AppTabs() {
           </svg>
           <span className="hidden sm:inline">Déconnexion</span>
         </button>
-      </div>
-    </nav>
+        </div>
+      </nav>
+    </>
   )
 }

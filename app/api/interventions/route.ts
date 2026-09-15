@@ -167,7 +167,7 @@ export async function GET(req: NextRequest) {
       if (i.sous_traitant_id) stIds.add(i.sous_traitant_id)
     })
 
-    const [clientsRes, techsRes, stRes] = await Promise.all([
+    const [clientsRes, techsRes, stRes, contratsRes] = await Promise.all([
       clientIds.size > 0
         ? prisma.client.findMany({
             where: { id: { in: Array.from(clientIds) } },
@@ -186,6 +186,12 @@ export async function GET(req: NextRequest) {
             select: { id: true, nom: true, email: true, telephone: true },
           })
         : Promise.resolve([]),
+      fluxParam === FLUX_RAPPORTEUR && interventions.length > 0
+        ? prisma.contratSousTraitance.findMany({
+            where: { intervention_id: { in: interventions.map((x) => x.id) } },
+            select: { intervention_id: true, created_at: true },
+          })
+        : Promise.resolve([]),
     ])
 
     const clientsMap: Record<string, { nom: string; email: string | null; telephone: string | null }> = {}
@@ -194,6 +200,8 @@ export async function GET(req: NextRequest) {
     techsRes.forEach(t => { techsMap[t.id] = { nom: t.nom, email: t.email } })
     const stMap: Record<string, { nom: string; email: string | null; telephone: string | null }> = {}
     stRes.forEach(s => { stMap[s.id] = { nom: s.nom, email: s.email, telephone: s.telephone } })
+    const contratMap: Record<string, string> = {}
+    contratsRes.forEach((c) => { contratMap[c.intervention_id] = c.created_at.toISOString() })
 
     const decorated = interventions.map(i => {
       const row = serializeIntervention(i as unknown as Record<string, unknown>)
@@ -225,6 +233,8 @@ export async function GET(req: NextRequest) {
         apport_rapport: apport?.rapport || null,
         apport_montant: apport?.montant ?? prix,
         apport_soumis_at: apport?.soumis_at || null,
+        pris_en_charge_at: contratMap[i.id] || null,
+        has_contrat: Boolean(contratMap[i.id]),
       }
     })
 

@@ -25,6 +25,7 @@ export type ApportContext = {
   payload: ApportTokenPayload
   interventionId: string
   already: boolean
+  pris_en_charge: boolean
   affaire: ApportAffaire
   photos_urls: string[]
   photos_legendes: string[]
@@ -86,7 +87,7 @@ export async function loadApportContext(
     where: { id: payload.interventionId },
     include: {
       client: { select: { nom: true, telephone: true } },
-      sousTraitant: { select: { id: true, nom: true } },
+      sousTraitant: { select: { id: true, nom: true, notes: true } },
     },
   })
   if (!interv || interv.flux !== FLUX_RAPPORTEUR) {
@@ -100,6 +101,10 @@ export async function loadApportContext(
   const photos_legendes = interv.photos_legendes || []
   const already = Boolean(interv.rapporteur_facture_id) || interv.statut === "terminee"
   const adresse = [interv.adresse_chantier, interv.code_postal, interv.ville].filter(Boolean).join(" ")
+  const contrat = await prisma.contratSousTraitance.findUnique({
+    where: { intervention_id: interv.id },
+    select: { id: true },
+  })
 
   return {
     ok: true,
@@ -107,6 +112,7 @@ export async function loadApportContext(
       payload,
       interventionId: interv.id,
       already,
+      pris_en_charge: Boolean(contrat),
       photos_urls,
       photos_legendes,
       rapport_json: interv.rapport_json,

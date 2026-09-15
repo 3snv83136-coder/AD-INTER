@@ -14,8 +14,12 @@ export type ParsedSousTraitantNotes = {
   notes: string
 }
 
+function digitsSiret(raw: string): string {
+  return raw.replace(/[\s.-]/g, "")
+}
+
 export function composeSousTraitantNotes(input: SousTraitantFicheInput): string | null {
-  const siret = (input.siret || "").replace(/[\s.-]/g, "")
+  const siret = digitsSiret(input.siret || "")
   const adresseLigne = [
     (input.adresse || "").trim(),
     [(input.code_postal || "").trim(), (input.ville || "").trim()].filter(Boolean).join(" "),
@@ -46,9 +50,9 @@ export function parseSousTraitantNotes(raw: string | null | undefined): ParsedSo
   const rest: string[] = []
 
   for (const line of lines) {
-    const match = line.match(/^SIRET\s+([\d\s.-]{14,})$/i)
-    if (match && !siret) {
-      const digits = match[1].replace(/[\s.-]/g, "")
+    const siretMatch = line.match(/^SIRET\s+([\d\s.-]{14,})$/i)
+    if (siretMatch && !siret) {
+      const digits = digitsSiret(siretMatch[1])
       if (/^\d{14}$/.test(digits)) {
         siret = digits
         continue

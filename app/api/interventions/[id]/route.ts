@@ -211,6 +211,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
       return NextResponse.json({ error: 'Sous-traitant introuvable' }, { status: 404 })
     }
     if (stId !== existing.sous_traitant_id) {
+      await prisma.contratSousTraitance.deleteMany({ where: { intervention_id: params.id } })
       update.sousTraitant = { connect: { id: stId } }
       update.rapporteur_envoye_at = null
       if (existing.statut === 'en_cours' && !('statut' in update)) {

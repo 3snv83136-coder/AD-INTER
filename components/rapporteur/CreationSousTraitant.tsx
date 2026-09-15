@@ -194,6 +194,10 @@ export function CreationSousTraitant({
               />
             </div>
           </label>
+          <label className="text-sm">
+            <span className="text-xs uppercase text-slate-500">SIRET</span>
+            <input value={siret} onChange={(e) => setSiret(e.target.value)} className="mt-1 w-full border-2 rounded-lg px-3 py-2" inputMode="numeric" />
+          </label>
           <label className="text-sm sm:col-span-2">
             <span className="text-xs uppercase text-slate-500">Notes</span>
             <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className="mt-1 w-full border-2 rounded-lg px-3 py-2" />

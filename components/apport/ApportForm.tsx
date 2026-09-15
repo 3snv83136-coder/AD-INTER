@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from "react"
+import { AcceptationSousTraitance } from "@/components/apport/AcceptationSousTraitance"
 import { BRAND_NAME } from "@/lib/brand"
 import { fmtDateFR } from "@/lib/format"
 
@@ -50,11 +51,13 @@ export function ApportForm({ token, preview = false }: { token: string; preview?
   const [apresLocal, setApresLocal] = useState<string | null>(null)
   const [uploading, setUploading] = useState<Slot | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [needsAcceptation, setNeedsAcceptation] = useState(true)
 
   const load = useCallback(async () => {
     if (preview) {
       setAffaire(APERCU_AFFAIRE)
       setAlready(false)
+      setNeedsAcceptation(true)
       setLoading(false)
       return
     }
@@ -62,10 +65,16 @@ export function ApportForm({ token, preview = false }: { token: string; preview?
     setError("")
     try {
       const res = await fetch(`/api/apport/${encodeURIComponent(token)}`, { cache: "no-store" })
-      const data = await res.json() as { error?: string; already?: boolean; affaire?: Affaire }
+      const data = await res.json() as {
+        error?: string
+        already?: boolean
+        affaire?: Affaire
+        needs_acceptation?: boolean
+      }
       if (!res.ok || !data.affaire) throw new Error(data.error || "Lien invalide")
       setAffaire(data.affaire)
       setAlready(Boolean(data.already || data.affaire.already))
+      setNeedsAcceptation(Boolean(data.needs_acceptation))
       setAvantUrl(data.affaire.photo_avant)
       setApresUrl(data.affaire.photo_apres)
     } catch (e) {
@@ -165,6 +174,21 @@ export function ApportForm({ token, preview = false }: { token: string; preview?
           <p className="rounded-xl bg-red-500/15 border border-red-400/30 text-red-100 px-4 py-3 text-sm">{error}</p>
         ) : null}
 
+        {affaire && needsAcceptation && !sent && !already ? (
+          <AcceptationSousTraitance
+            token={token}
+            preview={preview}
+            teaser={affaire}
+            onAccepted={() => {
+              if (preview) {
+                setNeedsAcceptation(false)
+                return
+              }
+              void load()
+            }}
+          />
+        ) : null}
+
         {sent || already ? (
           <section className="rounded-2xl bg-white text-slate-800 p-5 space-y-2">
             <h2 className="font-black text-[#0e2a52]">Dossier transmis</h2>
@@ -176,7 +200,7 @@ export function ApportForm({ token, preview = false }: { token: string; preview?
           </section>
         ) : null}
 
-        {affaire && !sent ? (
+        {affaire && !sent && !needsAcceptation ? (
           <>
             <section className="rounded-2xl bg-white text-slate-800 p-5 space-y-1">
               <p className="text-xs uppercase tracking-wide text-slate-400 font-semibold">Affaire</p>
