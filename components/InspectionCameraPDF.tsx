@@ -2,6 +2,7 @@
 import React from "react"
 import { Document, Page, Text, View, Image, StyleSheet, PDFDownloadLink } from "@react-pdf/renderer"
 import { GRAVITE_LABELS, GLOSSAIRE, findDefaut } from "@/lib/camera-defauts"
+import { ALLO_EMETTEUR } from "@/lib/emetteur"
 import { TEL_PRINCIPAL_FALLBACK } from "@/lib/parametres"
 
 /* ============ CHARTE ============ */
@@ -261,7 +262,7 @@ const Header = () => (
     </View>
     <View style={s.headerRight}>
       <Text style={s.headerMetaBold}>Rapport d&apos;inspection caméra</Text>
-      <Text style={s.headerMeta}>909 Av. des platanes · 34970 Lattes</Text>
+      <Text style={s.headerMeta}>{ALLO_EMETTEUR.adresseLignes.join(" · ")}</Text>
       <Text style={s.headerMeta}>Tél. {TEL_PRINCIPAL_FALLBACK}</Text>
     </View>
   </View>
@@ -343,9 +344,10 @@ export function InspectionDocument({ data }: InspectionPDFProps) {
           <View style={s.partyTable} wrap={false}>
             <View style={[s.partyCol, s.partyColSep]}>
               <Text style={s.partyHead}>ÉMETTEUR</Text>
-              <Text style={s.partyName}>Allo Débouchage</Text>
-              <Text style={s.partyLine}>909 Avenue des platanes</Text>
-              <Text style={s.partyLine}>34970 Lattes</Text>
+              <Text style={s.partyName}>{ALLO_EMETTEUR.raisonSociale}</Text>
+              {ALLO_EMETTEUR.adresseLignes.map((l, i) => (
+                <Text key={i} style={s.partyLine}>{l}</Text>
+              ))}
               <Text style={s.partyLine}>Tél. {TEL_PRINCIPAL_FALLBACK}</Text>
               <Text style={s.partyLine}>contact@allodebouchage.com</Text>
             </View>

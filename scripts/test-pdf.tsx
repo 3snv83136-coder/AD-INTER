@@ -63,7 +63,7 @@ const rapportProps: PDFProps = {
 const devisProps: DevisPDFProps = {
   emetteur: {
     raisonSociale: "Allo Débouchage",
-    adresseLignes: ["909 Avenue des platanes", "34970 Lattes"],
+    adresseLignes: ["24 Rue Méhul", "93500 PANTIN"],
     telephone: "0 805 55 35 55",
     email: "contact@allodebouchage.com",
   },
@@ -105,7 +105,8 @@ const devisProps: DevisPDFProps = {
 const factureProps: FacturePDFProps = {
   emetteur: {
     raisonSociale: 'Allo Débouchage',
-    adresseLignes: ['909 Avenue des platanes', '34970 Lattes'],
+    adresseLignes: ['24 Rue Méhul', '93500 PANTIN'],
+    rcs: 'RCS en cours',
     telephone: '0 805 55 35 55',
     email: 'contact@allodebouchage.com',
   },

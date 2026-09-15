@@ -6,6 +6,7 @@ import { dbNotConfiguredResponse, getPrismaOrNull } from "@/lib/db"
 import { getTelPrincipal } from "@/lib/parametres"
 import { BRAND_NAME } from "@/lib/brand"
 import { FLUX_RAPPORTEUR } from "@/lib/rapporteur"
+import { apportPageUrl, signApportToken } from "@/lib/apport-token"
 import { buildSmsUri, normalizePhoneForSmsUri } from "@/lib/sms"
 
 export const dynamic = "force-dynamic"
@@ -51,6 +52,8 @@ export async function POST(req: NextRequest, { params }: Params) {
     : ""
   const adresse = [interv.adresse_chantier, interv.code_postal, interv.ville].filter(Boolean).join(" ")
   const tel = await getTelPrincipal()
+  const token = await signApportToken(interv.id, st.id)
+  const portailUrl = apportPageUrl(token)
 
   const smsBody = [
     `${BRAND_NAME} — apport d'affaires`,
@@ -59,7 +62,7 @@ export async function POST(req: NextRequest, { params }: Params) {
     clientNom,
     interv.client?.telephone || "",
     adresse,
-    "Merci de confirmer la prise en charge.",
+    `Rapport + photos : ${portailUrl}`,
   ]
     .filter(Boolean)
     .join("\n")
@@ -96,7 +99,10 @@ export async function POST(req: NextRequest, { params }: Params) {
           <li><strong>Adresse :</strong> ${escapeHtml(adresse || "—")}</li>
           ${interv.notes_internes ? `<li><strong>Notes :</strong> ${escapeHtml(interv.notes_internes)}</li>` : ""}
         </ul>
-        <p>Merci de confirmer la prise en charge, puis de nous indiquer quand l’intervention est terminée.</p>
+        <p>
+          Après l’intervention, ouvrez ce lien pour envoyer les photos avant / après, le rapport et le montant :<br/>
+          <a href="${escapeHtml(portailUrl)}">${escapeHtml(portailUrl)}</a>
+        </p>
         <p>${escapeHtml(BRAND_NAME)} — ${escapeHtml(tel)}</p>
       `,
     })
@@ -125,5 +131,6 @@ export async function POST(req: NextRequest, { params }: Params) {
     email_id: emailId,
     sms_uri: smsUri,
     sms_body: smsBody,
+    apport_url: portailUrl,
   })
 }

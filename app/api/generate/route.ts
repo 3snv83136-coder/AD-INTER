@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { BRAND_NAME, SITE_URL } from "@/lib/brand"
 import { deepseek } from "@/lib/deepseek"
+import { ALLO_ADRESSE_RUE, ALLO_CODE_POSTAL, ALLO_VILLE } from "@/lib/entreprise"
 import { parseAiJson } from "@/lib/parseAiJson"
 
 export const maxDuration = 300
@@ -375,16 +376,16 @@ sont placés avant pour ne jamais être perdus si la réponse est longue.
         "priceRange": "€€",
         "address": {
           "@type": "PostalAddress",
-          "streetAddress": "909 Avenue des platanes",
-          "addressLocality": "Lattes",
-          "postalCode": "34970",
-          "addressRegion": "Occitanie",
+          "streetAddress": ALLO_ADRESSE_RUE,
+          "addressLocality": ALLO_VILLE,
+          "postalCode": ALLO_CODE_POSTAL,
+          "addressRegion": "Île-de-France",
           "addressCountry": "FR"
         },
         "geo": {
           "@type": "GeoCoordinates",
-          "latitude": 43.5679,
-          "longitude": 3.9045
+          "latitude": 48.8947,
+          "longitude": 2.4091
         },
         "areaServed": [
           { "@type": "City", "name": ville },

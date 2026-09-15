@@ -2,6 +2,7 @@ import type { EmetteurData } from "@/components/DevisPDF"
 import type { Agence } from "@/lib/agences"
 import { BRAND_NAME, CONTACT_EMAIL } from "@/lib/brand"
 import {
+  ALLO_ADRESSE_LIGNES,
   ALLO_BANK,
   ALLO_FORME_JURIDIQUE,
   ALLO_RCS,
@@ -16,7 +17,7 @@ import { TEL_PRINCIPAL_FALLBACK } from "@/lib/parametres"
  */
 export const ALLO_EMETTEUR: EmetteurData = {
   raisonSociale: BRAND_NAME,
-  adresseLignes: ["909 Avenue des platanes", "34970 Lattes"],
+  adresseLignes: [...ALLO_ADRESSE_LIGNES],
   telephone: TEL_PRINCIPAL_FALLBACK,
   email: CONTACT_EMAIL,
   rcs: ALLO_RCS,

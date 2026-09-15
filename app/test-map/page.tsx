@@ -17,13 +17,13 @@ export default function TestMapPage(): JSX.Element {
       <div className="space-y-8 max-w-3xl">
         <section>
           <h2 className="text-lg font-semibold text-gray-700 mb-2">
-            Toulon — 909 Avenue des platanes (avec cadastre)
+            Pantin — 24 Rue Méhul (siège)
           </h2>
           <div style={{ width: 600, height: 400 }}>
             <InterventionMap
-              adresse="909 Avenue des platanes"
-              ville="Toulon"
-              codePostal="83000"
+              adresse="24 Rue Méhul"
+              ville="Pantin"
+              codePostal="93500"
               showCadastre
             />
           </div>

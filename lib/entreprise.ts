@@ -5,10 +5,15 @@
 
 export const ALLO_SIREN = process.env.ALLO_SIREN || ""
 
-/** Siège social — 909 Avenue des platanes, 34970 Lattes */
+/** Siège social — 24 Rue Méhul, 93500 PANTIN */
+export const ALLO_ADRESSE_RUE = "24 Rue Méhul"
+export const ALLO_CODE_POSTAL = "93500"
+export const ALLO_VILLE = "PANTIN"
+export const ALLO_ADRESSE_LIGNES = [`${ALLO_ADRESSE_RUE}`, `${ALLO_CODE_POSTAL} ${ALLO_VILLE}`] as const
+
 export const ALLO_SIRET = process.env.ALLO_SIRET || process.env.NEXT_PUBLIC_ALLO_SIRET || ""
 
-export const ALLO_RCS = process.env.ALLO_RCS || ""
+export const ALLO_RCS = (process.env.ALLO_RCS || "").trim() || "RCS en cours"
 
 export const ALLO_TVA_INTRACOM = process.env.ALLO_TVA_INTRACOM || ""
 
