@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react"
 import { AcceptationSousTraitance } from "@/components/apport/AcceptationSousTraitance"
 import { CartoucheAffaire } from "@/components/apport/CartoucheAffaire"
 import { BRAND_NAME } from "@/lib/brand"
+import { composeConsignesIntervention } from "@/lib/consignes-intervention"
 
 type Affaire = {
   type_intervention: string | null
@@ -32,7 +33,12 @@ const APERCU_AFFAIRE: Affaire = {
   client_nom: "M. Dupont",
   client_telephone: null,
   client_email: "client@exemple.fr",
-  notes: "Exemple d’affaire — aperçu de la fiche reçue par l’apporteur.",
+  notes: composeConsignesIntervention({
+    paiements: ["Chèque sur place", "Carte bleue"],
+    etage: "3",
+    details: ["Cuisine", "Lavabo", "Regard intérieur"],
+    extra: "Code 4321",
+  }),
   sous_traitant_nom: "Sous-traitant",
   already: false,
   photo_avant: null,
@@ -40,9 +46,9 @@ const APERCU_AFFAIRE: Affaire = {
 }
 
 export function ApportForm({ token, preview = false }: { token: string; preview?: boolean }) {
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(!preview)
   const [error, setError] = useState("")
-  const [affaire, setAffaire] = useState<Affaire | null>(null)
+  const [affaire, setAffaire] = useState<Affaire | null>(preview ? APERCU_AFFAIRE : null)
   const [already, setAlready] = useState(false)
   const [sent, setSent] = useState(false)
   const [rapport, setRapport] = useState("")

@@ -1,6 +1,10 @@
 "use client"
 
 import { fmtDateFR } from "@/lib/format"
+import {
+  consignesHasContent,
+  parseConsignesIntervention,
+} from "@/lib/consignes-intervention"
 
 export type CartoucheAffaireData = {
   type_intervention: string | null
@@ -31,6 +35,48 @@ function wazeUrl(query: string): string {
   return `https://waze.com/ul?q=${encodeURIComponent(query)}&navigate=yes`
 }
 
+export function NotesIntervention({ notes }: { notes: string | null | undefined }) {
+  const c = parseConsignesIntervention(notes)
+  if (!consignesHasContent(c)) return null
+  return (
+    <div className="space-y-2">
+      {c.etage ? (
+        <div className="rounded-xl bg-[#0e2a52] text-white px-4 py-3">
+          <p className="text-[11px] uppercase tracking-wide text-white/70 font-black">Étage</p>
+          <p className="text-xl font-black leading-tight">{c.etage}</p>
+        </div>
+      ) : null}
+      {c.paiements.length > 0 ? (
+        <div className="rounded-xl bg-emerald-50 border-2 border-emerald-400 px-4 py-3">
+          <p className="text-[11px] uppercase tracking-wide text-emerald-800 font-black">Paiement</p>
+          <p className="mt-1 text-base font-black text-emerald-950">{c.paiements.join(" · ")}</p>
+        </div>
+      ) : null}
+      {c.details.length > 0 ? (
+        <div className="rounded-xl bg-slate-50 border-2 border-slate-200 px-4 py-3">
+          <p className="text-[11px] uppercase tracking-wide text-slate-500 font-black">Détail des travaux</p>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {c.details.map((d) => (
+              <span
+                key={d}
+                className="inline-flex rounded-lg bg-[#0e2a52] text-white text-xs font-bold px-2.5 py-1"
+              >
+                {d}
+              </span>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {c.extra ? (
+        <div className="rounded-xl bg-amber-50 border-2 border-amber-400 px-4 py-3">
+          <p className="text-[11px] uppercase tracking-wide text-amber-800 font-black">Notes d’intervention</p>
+          <p className="mt-1 text-base font-bold text-amber-950 whitespace-pre-line leading-snug">{c.extra}</p>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 export function CartoucheAffaire({ affaire }: { affaire: CartoucheAffaireData }) {
   const tel = affaire.client_telephone?.trim() || ""
   const call = tel ? telHref(tel) : ""
@@ -40,7 +86,7 @@ export function CartoucheAffaire({ affaire }: { affaire: CartoucheAffaireData })
   return (
     <section className="rounded-2xl bg-white text-slate-800 p-5 space-y-3">
       <div>
-        <p className="text-xs uppercase tracking-wide text-slate-400 font-semibold">Intervention</p>
+        <p className="text-xs uppercase tracking-wide text-slate-400 font-semibold">Travaux</p>
         <p className="font-black text-[#0e2a52] text-lg leading-tight">
           {affaire.type_intervention || "Intervention"}
         </p>
@@ -99,11 +145,7 @@ export function CartoucheAffaire({ affaire }: { affaire: CartoucheAffaireData })
         </div>
       ) : null}
 
-      {affaire.notes ? (
-        <p className="text-sm text-slate-500 pt-1 border-t border-slate-100 whitespace-pre-line">
-          {affaire.notes}
-        </p>
-      ) : null}
+      <NotesIntervention notes={affaire.notes} />
     </section>
   )
 }

@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import SignatureCanvas from "@/components/accord/SignatureCanvas"
+import { NotesIntervention } from "@/components/apport/CartoucheAffaire"
 import { BRAND_NAME } from "@/lib/brand"
 import { fmtDateFR } from "@/lib/format"
 import {
@@ -15,6 +16,7 @@ type Teaser = {
   date_prevue: string | null
   heure_prevue: string | null
   ville: string | null
+  notes: string | null
   sous_traitant_nom: string
 }
 
@@ -63,13 +65,18 @@ export function AcceptationSousTraitance({
 
   return (
     <div className="space-y-4">
-      <section className="rounded-2xl bg-white text-slate-800 p-5 space-y-1">
-        <p className="text-xs uppercase tracking-wide text-slate-400 font-semibold">Mission proposée</p>
-        <p className="font-black text-[#0e2a52]">{teaser.type_intervention || "Intervention"}</p>
-        <p className="text-sm text-slate-600">
-          {[fmtDateFR(teaser.date_prevue), teaser.heure_prevue, teaser.ville].filter(Boolean).join(" · ")}
-        </p>
-        <p className="text-xs text-slate-400 mt-2">
+      <section className="rounded-2xl bg-white text-slate-800 p-5 space-y-3">
+        <div>
+          <p className="text-xs uppercase tracking-wide text-slate-400 font-semibold">Travaux</p>
+          <p className="font-black text-[#0e2a52] text-lg leading-tight">
+            {teaser.type_intervention || "Intervention"}
+          </p>
+          <p className="text-sm text-slate-600 mt-0.5">
+            {[fmtDateFR(teaser.date_prevue), teaser.heure_prevue, teaser.ville].filter(Boolean).join(" · ")}
+          </p>
+        </div>
+        <NotesIntervention notes={teaser.notes} />
+        <p className="text-xs text-slate-400">
           Les coordonnées du client s’affichent après signature.
         </p>
       </section>

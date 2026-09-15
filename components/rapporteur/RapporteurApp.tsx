@@ -16,6 +16,12 @@ import { CreationSousTraitant } from "@/components/rapporteur/CreationSousTraita
 import { CrmSignatureSignal } from "@/components/crm/CrmSignatureSignal"
 import { useAccess } from "@/components/useAccess"
 import { canDeleteAffaireRapporteur } from "@/lib/rapporteur-rules"
+import { ConsignesInterventionFields } from "@/components/intervention/ConsignesInterventionFields"
+import {
+  applyTextoNotes,
+  composeConsignesIntervention,
+  parseConsignesIntervention,
+} from "@/lib/consignes-intervention"
 
 type Statut = "planifiee" | "en_cours" | "terminee" | "annulee"
 
@@ -580,7 +586,7 @@ function AffaireModal({
   )
   const [heurePrevue, setHeurePrevue] = useState(fmtHeure(initial?.heure_prevue || "09:00") || "09:00")
   const [urgence, setUrgence] = useState(!!initial?.urgence)
-  const [notes, setNotes] = useState(initial?.notes_internes || "")
+  const [consignes, setConsignes] = useState(() => parseConsignesIntervention(initial?.notes_internes))
   const [stId, setStId] = useState(initial?.sous_traitant_id || defaultStId || sts[0]?.id || "")
   const [savedId, setSavedId] = useState<string | null>(initial?.id ?? null)
   const [justCreated, setJustCreated] = useState(false)
@@ -643,7 +649,7 @@ function AffaireModal({
           date_prevue: datePrevue || null,
           heure_prevue: heurePrevue || null,
           urgence,
-          notes_internes: notes || null,
+          notes_internes: composeConsignesIntervention(consignes),
         }),
       })
       const data = await res.json() as { error?: string; intervention?: { id?: string; client_id?: string | null } }
@@ -721,7 +727,7 @@ function AffaireModal({
               }
               if (d.date_intervention) setDatePrevue(d.date_intervention)
               if (d.heure) setHeurePrevue(d.heure)
-              if (d.notes) setNotes(d.notes)
+              if (d.notes) setConsignes((c) => applyTextoNotes(c, d.notes))
             }}
           />
           <SiretLookup
@@ -814,10 +820,7 @@ function AffaireModal({
             Urgent
           </label>
 
-          <label className="text-sm block">
-            <span className="text-xs uppercase text-slate-500">Notes internes</span>
-            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className="mt-1 w-full border-2 rounded-lg px-3 py-2" />
-          </label>
+          <ConsignesInterventionFields value={consignes} onChange={setConsignes} />
 
           <div>
             <span className="text-xs uppercase text-slate-500 font-bold">Sous-traitant</span>

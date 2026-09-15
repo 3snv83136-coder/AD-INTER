@@ -13,6 +13,12 @@ import { CANAUX_ACQUISITION } from "@/lib/canaux"
 import { fmtDateFR, fmtEUR } from "@/lib/format"
 import { TYPES_INTERVENTION as TYPES } from "@/lib/types-intervention"
 import { phaseCta, phaseLabel } from "@/lib/terrain-phases"
+import { ConsignesInterventionFields } from "@/components/intervention/ConsignesInterventionFields"
+import {
+  applyTextoNotes,
+  composeConsignesIntervention,
+  emptyConsignes,
+} from "@/lib/consignes-intervention"
 
 type Statut = 'planifiee' | 'en_cours' | 'terminee' | 'annulee'
 
@@ -615,7 +621,7 @@ function NouvelleInterventionModal({
   const [agence, setAgence] = useState<string>(AGENCES[0])
   const [technicienId, setTechnicienId] = useState<string>('')
   const [canalAcquisition, setCanalAcquisition] = useState<string>('')
-  const [notes, setNotes] = useState('')
+  const [consignes, setConsignes] = useState(emptyConsignes)
 
   async function handleSubmit() {
     if (!clientNom.trim()) { setError('Nom du client requis'); return }
@@ -652,7 +658,7 @@ function NouvelleInterventionModal({
           urgence,
           prix_prevu: prixPrevu ? Number(prixPrevu) : null,
           canal_acquisition: canalAcquisition || null,
-          notes_internes: notes || null,
+          notes_internes: composeConsignesIntervention(consignes),
         }),
       })
       const data = await res.json()
@@ -692,7 +698,7 @@ function NouvelleInterventionModal({
                 }
                 if (d.date_intervention) setDatePrevue(d.date_intervention)
                 if (d.heure) setHeurePrevue(d.heure)
-                if (d.notes) setNotes(d.notes)
+                if (d.notes) setConsignes((c) => applyTextoNotes(c, d.notes))
               }}
             />
             <SiretLookup
@@ -871,10 +877,11 @@ function NouvelleInterventionModal({
               <span className="text-[11px] text-slate-400 mt-1 block">D&apos;où vient le client ? Sert à mesurer l&apos;efficacité des canaux de communication.</span>
             </label>
 
-            <label className="block text-sm">
-              <span className="text-xs uppercase tracking-wide text-slate-500 font-semibold">Notes internes</span>
-              <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} placeholder="Code d'accès, étage, instructions particulières…" className="w-full border-2 border-slate-200 focus:border-blue-500 outline-none rounded-lg px-3 py-2 mt-1 text-sm" />
-            </label>
+            <ConsignesInterventionFields
+              value={consignes}
+              onChange={setConsignes}
+              accent="blue"
+            />
           </section>
 
           {error && <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded-xl text-sm">{error}</div>}

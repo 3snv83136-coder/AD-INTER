@@ -7,7 +7,12 @@ import { getTelPrincipal } from "@/lib/parametres"
 import { BRAND_NAME } from "@/lib/brand"
 import { FLUX_RAPPORTEUR } from "@/lib/rapporteur"
 import { apportPageUrl, signApportToken } from "@/lib/apport-token"
+import { APPORT_LIEN_CTA } from "@/lib/apport-cta"
 import { buildSmsUri, normalizePhoneForSmsUri } from "@/lib/sms"
+import {
+  consignesHasContent,
+  parseConsignesIntervention,
+} from "@/lib/consignes-intervention"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 30
@@ -55,17 +60,8 @@ export async function POST(req: NextRequest, { params }: Params) {
   const token = await signApportToken(interv.id, st.id)
   const portailUrl = apportPageUrl(token)
 
-  const smsBody = [
-    `${BRAND_NAME} — apport d'affaires`,
-    interv.type_intervention || "Intervention",
-    `${dateStr}${heure ? ` ${heure}` : ""}`,
-    clientNom,
-    interv.client?.telephone || "",
-    adresse,
-    `Rapport + photos : ${portailUrl}`,
-  ]
-    .filter(Boolean)
-    .join("\n")
+  const consignes = parseConsignesIntervention(interv.notes_internes)
+  const smsBody = `${APPORT_LIEN_CTA}\n${portailUrl}`
 
   let smsUri: string | null = null
   if (st.telephone && normalizePhoneForSmsUri(st.telephone)) {
@@ -92,13 +88,31 @@ export async function POST(req: NextRequest, { params }: Params) {
         <p>Bonjour ${escapeHtml(st.nom)},</p>
         <p>${escapeHtml(BRAND_NAME)} vous transmet une intervention à réaliser (sous-traitance).</p>
         <ul>
-          <li><strong>Type :</strong> ${escapeHtml(interv.type_intervention || "—")}</li>
+          <li><strong>Travaux :</strong> ${escapeHtml(interv.type_intervention || "—")}</li>
           <li><strong>Date :</strong> ${escapeHtml(dateStr)} ${escapeHtml(heure)}</li>
           <li><strong>Client :</strong> ${escapeHtml(clientNom)}</li>
           <li><strong>Téléphone :</strong> ${escapeHtml(interv.client?.telephone || "—")}</li>
+          <li><strong>Email :</strong> ${escapeHtml(interv.client?.email || "—")}</li>
           <li><strong>Adresse :</strong> ${escapeHtml(adresse || "—")}</li>
-          ${interv.notes_internes ? `<li><strong>Notes :</strong> ${escapeHtml(interv.notes_internes)}</li>` : ""}
         </ul>
+        ${consignesHasContent(consignes) ? `
+        ${consignes.etage ? `<div style="background:#0e2a52;color:#fff;border-radius:10px;padding:14px 18px;margin:16px 0 8px">
+          <div style="font-size:11px;font-weight:bold;letter-spacing:1px;text-transform:uppercase;opacity:.75;margin-bottom:4px">Étage</div>
+          <div style="font-size:22px;font-weight:bold">${escapeHtml(consignes.etage)}</div>
+        </div>` : ""}
+        ${consignes.paiements.length > 0 ? `<div style="background:#ecfdf5;border:2px solid #34d399;border-radius:10px;padding:14px 18px;margin:8px 0">
+          <div style="font-size:11px;font-weight:bold;color:#065f46;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Paiement</div>
+          <div style="font-size:16px;font-weight:bold;color:#064e3b">${escapeHtml(consignes.paiements.join(" · "))}</div>
+        </div>` : ""}
+        ${consignes.details.length > 0 ? `<div style="background:#f8fafc;border:2px solid #cbd5e1;border-radius:10px;padding:14px 18px;margin:8px 0">
+          <div style="font-size:11px;font-weight:bold;color:#475569;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Détail des travaux</div>
+          <div style="font-size:15px;font-weight:bold;color:#0e2a52">${escapeHtml(consignes.details.join(" · "))}</div>
+        </div>` : ""}
+        ${consignes.extra ? `<div style="background:#fef3c7;border:2px solid #f59e0b;border-radius:10px;padding:14px 18px;margin:8px 0 16px">
+          <div style="font-size:11px;font-weight:bold;color:#92400e;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Notes d’intervention</div>
+          <div style="font-size:16px;font-weight:bold;color:#451a03;white-space:pre-wrap">${escapeHtml(consignes.extra)}</div>
+        </div>` : ""}
+        ` : ""}
         <p>
           Après l’intervention, ouvrez ce lien pour envoyer les photos avant / après, le rapport et le montant :<br/>
           <a href="${escapeHtml(portailUrl)}">${escapeHtml(portailUrl)}</a>
